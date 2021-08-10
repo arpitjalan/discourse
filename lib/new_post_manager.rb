@@ -54,6 +54,10 @@ class NewPostManager
     manager.user.trust_level <= SiteSetting.auto_silence_fast_typers_max_trust_level
   end
 
+  def self.auto_silence?(manager)
+    is_first_post?(manager) && WordWatcher.new("#{manager.args[:title]} #{manager.args[:raw]}").should_silence?
+  end
+
   def self.matches_auto_silence_regex?(manager)
     args = manager.args
 
@@ -102,7 +106,7 @@ class NewPostManager
 
     return :fast_typer if is_fast_typer?(manager)
 
-    return :auto_silence_regex if matches_auto_silence_regex?(manager)
+    return :auto_silence_regex if auto_silence?(manager) || matches_auto_silence_regex?(manager)
 
     return :staged if SiteSetting.approve_unless_staged? && user.staged?
 
@@ -120,9 +124,12 @@ class NewPostManager
     if manager.args[:topic_id].present?
       cat = Category.joins(:topics).find_by(topics: { id: manager.args[:topic_id] })
       return false unless cat
-      cat.require_reply_approval?
+
+      topic = Topic.find(manager.args[:topic_id])
+      cat.require_reply_approval? && !manager.user.guardian.can_review_topic?(topic)
     elsif manager.args[:category].present?
-      Category.find(manager.args[:category]).require_topic_approval?
+      cat = Category.find(manager.args[:category])
+      cat.require_topic_approval? && !manager.user.guardian.is_category_group_moderator?(cat)
     else
       false
     end
@@ -165,7 +172,7 @@ class NewPostManager
     I18n.with_locale(SiteSetting.default_locale) do
       if is_fast_typer?(manager)
         UserSilencer.silence(manager.user, Discourse.system_user, keep_posts: true, reason: I18n.t("user.new_user_typed_too_fast"))
-      elsif matches_auto_silence_regex?(manager)
+      elsif auto_silence?(manager) || matches_auto_silence_regex?(manager)
         UserSilencer.silence(manager.user, Discourse.system_user, keep_posts: true, reason: I18n.t("user.content_matches_auto_silence_regex"))
       elsif reason == :email_spam && is_first_post?(manager)
         UserSilencer.silence(manager.user, Discourse.system_user, keep_posts: true, reason: I18n.t("user.email_in_spam_header"))

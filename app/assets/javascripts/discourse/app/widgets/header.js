@@ -2,7 +2,6 @@ import DiscourseURL, { userPath } from "discourse/lib/url";
 import I18n from "I18n";
 import { addExtraUserClasses } from "discourse/helpers/user-avatar";
 import { ajax } from "discourse/lib/ajax";
-import { applySearchAutocomplete } from "discourse/lib/search";
 import { avatarImg } from "discourse/widgets/post";
 import { createWidget } from "discourse/widgets/widget";
 import { get } from "@ember/object";
@@ -60,7 +59,12 @@ createWidget("header-notifications", {
     const contents = [
       avatarImg(
         this.settings.avatarSize,
-        addExtraUserClasses(user, avatarAttrs)
+        Object.assign(
+          {
+            alt: "user.avatar.header_title",
+          },
+          addExtraUserClasses(user, avatarAttrs)
+        )
       ),
     ];
 
@@ -96,7 +100,18 @@ createWidget("header-notifications", {
                 "span.ring-backdrop",
                 {},
                 h("h1.ring-first-notification", {}, [
-                  h("span", {}, I18n.t("user.first_notification")),
+                  h(
+                    "span",
+                    { className: "first-notification" },
+                    I18n.t("user.first_notification")
+                  ),
+                  h("span", { className: "read-later" }, [
+                    this.attach("link", {
+                      action: "readLater",
+                      className: "read-later-link",
+                      label: "user.skip_new_user_tips.read_later",
+                    }),
+                  ]),
                   h("span", {}, [
                     I18n.t("user.skip_new_user_tips.not_first_time"),
                     " ",
@@ -105,7 +120,6 @@ createWidget("header-notifications", {
                       className: "skip-new-user-tips",
                       label: "user.skip_new_user_tips.skip_link",
                       title: "user.skip_new_user_tips.description",
-                      omitSpan: true,
                     }),
                   ]),
                 ])
@@ -146,8 +160,10 @@ createWidget(
           "a.icon",
           {
             attributes: {
-              href: attrs.user.get("path"),
-              title: attrs.user.get("name"),
+              "aria-haspopup": true,
+              "aria-expanded": attrs.active,
+              href: attrs.user.path,
+              title: attrs.user.name || attrs.user.username,
               "data-auto-route": true,
             },
           },
@@ -177,6 +193,8 @@ createWidget(
           "a.icon.btn-flat",
           {
             attributes: {
+              "aria-expanded": attrs.active,
+              "aria-haspopup": true,
               href: attrs.href,
               "data-auto-route": true,
               title,
@@ -317,6 +335,7 @@ export function attachAdditionalPanel(name, toggle, transformAttrs) {
 export default createWidget("header", {
   tagName: "header.d-header.clearfix",
   buildKey: () => `header`,
+  services: ["router"],
 
   defaultState() {
     let states = {
@@ -441,15 +460,13 @@ export default createWidget("header", {
     if (this.site.mobileView) {
       const searchService = this.register.lookup("search-service:main");
       const context = searchService.get("searchContext");
-      var params = "";
+      let params = "";
 
       if (context) {
         params = `?context=${context.type}&context_id=${context.id}&skip_context=${this.state.skipSearchContext}`;
       }
 
-      const currentPath = this.register
-        .lookup("service:router")
-        .get("_router.currentPath");
+      const currentPath = this.router.get("_router.currentPath");
 
       if (currentPath === "full-page-search") {
         scrollTop();
@@ -465,17 +482,9 @@ export default createWidget("header", {
 
     if (this.state.searchVisible) {
       schedule("afterRender", () => {
-        const $searchInput = $("#search-term");
-        $searchInput.focus().select();
-
-        applySearchAutocomplete(
-          $searchInput,
-          this.siteSettings,
-          this.appEvents,
-          {
-            appendSelector: ".menu-panel",
-          }
-        );
+        const searchInput = document.querySelector("#search-term");
+        searchInput.focus();
+        searchInput.select();
       });
     }
   },
@@ -487,11 +496,21 @@ export default createWidget("header", {
 
     this.state.userVisible = !this.state.userVisible;
     this.toggleBodyScrolling(this.state.userVisible);
+
+    // auto focus on first button in dropdown
+    schedule("afterRender", () =>
+      document.querySelector(".user-menu button")?.focus()
+    );
   },
 
   toggleHamburger() {
     this.state.hamburgerVisible = !this.state.hamburgerVisible;
     this.toggleBodyScrolling(this.state.hamburgerVisible);
+
+    // auto focus on first link in dropdown
+    schedule("afterRender", () => {
+      document.querySelector(".hamburger-panel .menu-links a")?.focus();
+    });
   },
 
   toggleBodyScrolling(bool) {
@@ -525,9 +544,7 @@ export default createWidget("header", {
 
     state.contextEnabled = false;
 
-    const currentPath = this.register
-      .lookup("service:router")
-      .get("_router.currentPath");
+    const currentPath = this.router.get("_router.currentPath");
     const blocklist = [/^discovery\.categories/];
     const allowlist = [/^topic\./];
     const check = function (regex) {
@@ -577,6 +594,9 @@ export default createWidget("header", {
 
   headerDismissFirstNotificationMask() {
     // Dismiss notifications
+    if (document.body.classList.contains("unread-first-notification")) {
+      document.body.classList.remove("unread-first-notification");
+    }
     this.store
       .findStale(
         "notification",
@@ -591,6 +611,10 @@ export default createWidget("header", {
     // Update UI
     this.state.ringBackdrop = false;
     this.scheduleRerender();
+  },
+
+  readLater() {
+    this.headerDismissFirstNotificationMask();
   },
 
   skipNewUserTips() {

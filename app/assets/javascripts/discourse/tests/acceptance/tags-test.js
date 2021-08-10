@@ -1,6 +1,8 @@
 import {
   acceptance,
+  count,
   exists,
+  invisible,
   queryAll,
   updateCurrentUser,
 } from "discourse/tests/helpers/qunit-helpers";
@@ -10,6 +12,95 @@ import { test } from "qunit";
 acceptance("Tags", function (needs) {
   needs.user();
 
+  needs.pretender((server, helper) => {
+    server.get("/tag/test/notifications", () =>
+      helper.response({
+        tag_notification: { id: "test", notification_level: 2 },
+      })
+    );
+
+    server.get("/tag/test/l/unread.json", () =>
+      helper.response({
+        users: [
+          {
+            id: 42,
+            username: "foo",
+            name: "Foo",
+            avatar_template: "/user_avatar/localhost/foo/{size}/10265_2.png",
+          },
+        ],
+        primary_groups: [],
+        topic_list: {
+          can_create_topic: true,
+          draft: null,
+          draft_key: "new_topic",
+          per_page: 30,
+          top_tags: [],
+          tags: [{ id: 42, name: "test", topic_count: 1, staff: false }],
+          topics: [
+            {
+              id: 42,
+              title: "Hello world",
+              fancy_title: "Hello world",
+              slug: "hello-world",
+              posts_count: 1,
+              reply_count: 1,
+              highest_post_number: 1,
+              created_at: "2020-01-01T00:00:00.000Z",
+              last_posted_at: "2020-01-01T00:00:00.000Z",
+              bumped: true,
+              bumped_at: "2020-01-01T00:00:00.000Z",
+              archetype: "regular",
+              unseen: false,
+              last_read_post_number: 1,
+              unread_posts: 1,
+              pinned: false,
+              unpinned: null,
+              visible: true,
+              closed: true,
+              archived: false,
+              notification_level: 3,
+              bookmarked: false,
+              liked: true,
+              tags: ["test"],
+              views: 42,
+              like_count: 42,
+              has_summary: false,
+              last_poster_username: "foo",
+              pinned_globally: false,
+              featured_link: null,
+              posters: [],
+            },
+          ],
+        },
+      })
+    );
+
+    server.put("/topics/bulk", () => helper.response({}));
+
+    server.get("/tags/c/faq/4/test/l/latest.json", () => {
+      return helper.response({
+        users: [],
+        primary_groups: [],
+        topic_list: {
+          can_create_topic: true,
+          draft: null,
+          draft_key: "new_topic",
+          draft_sequence: 1,
+          per_page: 30,
+          tags: [
+            {
+              id: 1,
+              name: "planters",
+              topic_count: 1,
+            },
+          ],
+          topics: [],
+        },
+      });
+    });
+  });
+
   test("list the tags", async function (assert) {
     await visit("/tags");
 
@@ -18,6 +109,18 @@ acceptance("Tags", function (needs) {
       $('*[data-tag-name="eviltrout"]').length,
       "shows the eviltrout tag"
     );
+  });
+
+  test("dismiss notifications", async function (assert) {
+    await visit("/tag/test/l/unread");
+    await click("button.dismiss-read");
+    await click(".dismiss-read-modal button.btn-primary");
+    assert.ok(invisible(".dismiss-read-modal"));
+  });
+
+  test("hide tag notifications menu", async function (assert) {
+    await visit("/tags/c/faq/4/test");
+    assert.ok(invisible(".tag-notifications-button"));
   });
 });
 
@@ -130,18 +233,18 @@ acceptance("Tags listed by group", function (needs) {
     updateCurrentUser({ moderator: false, admin: false });
 
     await visit("/tag/regular-tag");
-    assert.ok(queryAll("#create-topic:disabled").length === 0);
+    assert.ok(!exists("#create-topic:disabled"));
 
     await visit("/tag/staff-only-tag");
-    assert.ok(queryAll("#create-topic:disabled").length === 1);
+    assert.equal(count("#create-topic:disabled"), 1);
 
     updateCurrentUser({ moderator: true });
 
     await visit("/tag/regular-tag");
-    assert.ok(queryAll("#create-topic:disabled").length === 0);
+    assert.ok(!exists("#create-topic:disabled"));
 
     await visit("/tag/staff-only-tag");
-    assert.ok(queryAll("#create-topic:disabled").length === 0);
+    assert.ok(!exists("#create-topic:disabled"));
   });
 });
 
@@ -151,13 +254,16 @@ acceptance("Tag info", function (needs) {
     tags_listed_by_group: true,
   });
   needs.pretender((server, helper) => {
-    server.get("/tag/planters/notifications", () => {
+    server.get("/tag/:tag_name/notifications", (request) => {
       return helper.response({
-        tag_notification: { id: "planters", notification_level: 1 },
+        tag_notification: {
+          id: request.params.tag_name,
+          notification_level: 1,
+        },
       });
     });
 
-    server.get("/tag/planters/l/latest.json", () => {
+    server.get("/tag/:tag_name/l/latest.json", (request) => {
       return helper.response({
         users: [],
         primary_groups: [],
@@ -170,7 +276,7 @@ acceptance("Tag info", function (needs) {
           tags: [
             {
               id: 1,
-              name: "planters",
+              name: request.params.tag_name,
               topic_count: 1,
             },
           ],
@@ -242,8 +348,34 @@ acceptance("Tag info", function (needs) {
       });
     });
 
+    server.get("/tag/happy-monkey/info", () => {
+      return helper.response({
+        __rest_serializer: "1",
+        tag_info: {
+          id: 13,
+          name: "happy-monkey",
+          topic_count: 1,
+          staff: false,
+          synonyms: [],
+          tag_group_names: [],
+          category_ids: [],
+        },
+        categories: [],
+      });
+    });
+
     server.delete("/tag/planters/synonyms/containers", () =>
       helper.response({ success: true })
+    );
+
+    server.get("/tags/filter/search", () =>
+      helper.response({
+        results: [
+          { id: "monkey", text: "monkey", count: 1 },
+          { id: "not-monkey", text: "not-monkey", count: 1 },
+          { id: "happy-monkey", text: "happy-monkey", count: 1 },
+        ],
+      })
     );
   });
 
@@ -251,7 +383,7 @@ acceptance("Tag info", function (needs) {
     updateCurrentUser({ moderator: false, admin: false });
 
     await visit("/tag/planters");
-    assert.ok(queryAll("#show-tag-info").length === 1);
+    assert.equal(count("#show-tag-info"), 1);
 
     await click("#show-tag-info");
     assert.ok(exists(".tag-info .tag-name"), "show tag");
@@ -259,17 +391,34 @@ acceptance("Tag info", function (needs) {
       queryAll(".tag-info .tag-associations").text().indexOf("Gardening") >= 0,
       "show tag group names"
     );
-    assert.ok(
-      queryAll(".tag-info .synonyms-list .tag-box").length === 2,
+    assert.equal(
+      count(".tag-info .synonyms-list .tag-box"),
+      2,
       "shows the synonyms"
     );
-    assert.ok(
-      queryAll(".tag-info .badge-category").length === 1,
-      "show the category"
-    );
+    assert.equal(count(".tag-info .badge-category"), 1, "show the category");
     assert.ok(!exists("#rename-tag"), "can't rename tag");
     assert.ok(!exists("#edit-synonyms"), "can't edit synonyms");
     assert.ok(!exists("#delete-tag"), "can't delete tag");
+  });
+
+  test("tag info hides only current tag in synonyms dropdown", async function (assert) {
+    updateCurrentUser({ moderator: false, admin: true });
+
+    await visit("/tag/happy-monkey");
+    assert.equal(count("#show-tag-info"), 1);
+
+    await click("#show-tag-info");
+    assert.ok(exists(".tag-info .tag-name"), "show tag");
+
+    await click("#edit-synonyms");
+    await click("#add-synonyms .filter-input");
+
+    assert.equal(count(".tag-chooser-row"), 2);
+    assert.deepEqual(
+      Array.from(find(".tag-chooser-row")).map((x) => x.dataset["value"]),
+      ["monkey", "not-monkey"]
+    );
   });
 
   test("can filter tags page by category", async function (assert) {
@@ -285,7 +434,7 @@ acceptance("Tag info", function (needs) {
     updateCurrentUser({ moderator: false, admin: true });
 
     await visit("/tag/planters");
-    assert.ok(queryAll("#show-tag-info").length === 1);
+    assert.equal(count("#show-tag-info"), 1);
 
     await click("#show-tag-info");
     assert.ok(exists("#rename-tag"), "can rename tag");
@@ -293,18 +442,13 @@ acceptance("Tag info", function (needs) {
     assert.ok(exists("#delete-tag"), "can delete tag");
 
     await click("#edit-synonyms");
-    assert.ok(
-      queryAll(".unlink-synonym:visible").length === 2,
-      "unlink UI is visible"
-    );
-    assert.ok(
-      queryAll(".delete-synonym:visible").length === 2,
-      "delete UI is visible"
-    );
+    assert.ok(count(".unlink-synonym:visible"), 2, "unlink UI is visible");
+    assert.equal(count(".delete-synonym:visible"), 2, "delete UI is visible");
 
     await click(".unlink-synonym:nth-of-type(1)");
-    assert.ok(
-      queryAll(".tag-info .synonyms-list .tag-box").length === 1,
+    assert.equal(
+      count(".tag-info .synonyms-list .tag-box"),
+      1,
       "removed a synonym"
     );
   });
@@ -312,7 +456,7 @@ acceptance("Tag info", function (needs) {
   test("composer will not set tags if user cannot create them", async function (assert) {
     await visit("/tag/planters");
     await click("#create-topic");
-    const composer = this.container.lookup("controller:composer");
-    assert.equal(composer.model.tags, null);
+    let composer = this.owner.lookup("controller:composer");
+    assert.equal(composer.get("model").tags, null);
   });
 });

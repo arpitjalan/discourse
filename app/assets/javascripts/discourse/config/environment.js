@@ -4,8 +4,9 @@ module.exports = function (environment) {
   let ENV = {
     modulePrefix: "discourse",
     environment,
-    rootURL: "/",
+    rootURL: process.env.DISCOURSE_RELATIVE_URL_ROOT || "/",
     locationType: "auto",
+    historySupportMiddleware: false,
     EmberENV: {
       FEATURES: {
         // Here you can enable experimental features on an ember canary build

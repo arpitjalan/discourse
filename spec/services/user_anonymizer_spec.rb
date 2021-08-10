@@ -198,7 +198,7 @@ describe UserAnonymizer do
       expect(history.details).not_to match(orig_username)
     end
 
-    it "removes external auth assocations" do
+    it "removes external auth associations" do
       user.user_associated_accounts = [UserAssociatedAccount.create(user_id: user.id, provider_uid: "example", provider_name: "facebook")]
       user.single_sign_on_record = SingleSignOnRecord.create(user_id: user.id, external_id: "example", last_payload: "looks good")
       user.oauth2_user_infos = [Oauth2UserInfo.create(user_id: user.id, uid: "example", provider: "example")]
@@ -210,10 +210,21 @@ describe UserAnonymizer do
     end
 
     it "removes api key" do
-      ApiKey.create(user_id: user.id)
+      ApiKey.create!(user_id: user.id)
+
       expect { make_anonymous }.to change { ApiKey.count }.by(-1)
+
       user.reload
       expect(user.api_keys).to be_empty
+    end
+
+    it "removes user api key" do
+      user_api_key = Fabricate(:user_api_key, user: user)
+
+      expect { make_anonymous }.to change { UserApiKey.count }.by(-1)
+
+      user.reload
+      expect(user.user_api_keys).to be_empty
     end
 
     context "executes job" do
@@ -355,6 +366,19 @@ describe UserAnonymizer do
       expect(user_profile_view.reload.ip_address).to eq(anon_ip)
     end
 
+  end
+
+  describe "anonymize_emails" do
+    it "destroys all associated invites" do
+      invite = Fabricate(:invite, email: 'test@example.com')
+      user = invite.redeem
+
+      Jobs.run_immediately!
+      described_class.make_anonymous(user, admin)
+
+      expect(user.email).not_to eq('test@example.com')
+      expect(Invite.exists?(id: invite.id)).to eq(false)
+    end
   end
 
 end

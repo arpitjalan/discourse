@@ -43,7 +43,7 @@ describe UserUpdater do
 
     it 'saves user' do
       user = Fabricate(:user, name: 'Billy Bob')
-      updater = UserUpdater.new(acting_user, user)
+      updater = UserUpdater.new(user, user)
 
       updater.update(name: 'Jim Tom')
 
@@ -52,7 +52,7 @@ describe UserUpdater do
 
     it 'can update categories and tags' do
       user = Fabricate(:user)
-      updater = UserUpdater.new(acting_user, user)
+      updater = UserUpdater.new(user, user)
       updater.update(watched_tags: "#{tag.name},#{tag2.name}", muted_category_ids: [category.id])
 
       expect(TagUser.where(
@@ -72,7 +72,41 @@ describe UserUpdater do
         category_id: category.id,
         notification_level: CategoryUser.notification_levels[:muted]
       ).count).to eq(1)
+    end
 
+    context "staged user" do
+      let(:staged_user) { Fabricate(:staged) }
+
+      context "allow_changing_staged_user_tracking is false" do
+        before { SiteSetting.allow_changing_staged_user_tracking = false }
+
+        it "doesn't update muted categories and watched tags" do
+          updater = UserUpdater.new(Fabricate(:admin), staged_user)
+          updater.update(watched_tags: "#{tag.name}", muted_category_ids: [category.id])
+          expect(TagUser.exists?(user_id: staged_user.id)).to eq(false)
+          expect(CategoryUser.exists?(user_id: staged_user.id)).to eq(false)
+        end
+      end
+
+      context "allow_changing_staged_user_tracking is true" do
+        before { SiteSetting.allow_changing_staged_user_tracking = true }
+
+        it "updates muted categories and watched tags" do
+          updater = UserUpdater.new(Fabricate(:admin), staged_user)
+          updater.update(watched_tags: "#{tag.name}", muted_category_ids: [category.id])
+          expect(TagUser.exists?(
+            user_id: staged_user.id,
+            tag_id: tag.id,
+            notification_level: TagUser.notification_levels[:watching]
+          )).to eq(true)
+
+          expect(CategoryUser.exists?(
+            user_id: staged_user.id,
+            category_id: category.id,
+            notification_level: CategoryUser.notification_levels[:muted]
+          )).to eq(true)
+        end
+      end
     end
 
     it "doesn't remove notification prefs when updating something else" do
@@ -91,6 +125,7 @@ describe UserUpdater do
       user = Fabricate(:user)
       updater = UserUpdater.new(acting_user, user)
       date_of_birth = Time.zone.now
+      SiteSetting.disable_mailing_list_mode = false
 
       theme = Fabricate(:theme, user_selectable: true)
 
@@ -161,6 +196,7 @@ describe UserUpdater do
     it "disables email_digests when enabling mailing_list_mode" do
       user = Fabricate(:user)
       updater = UserUpdater.new(acting_user, user)
+      SiteSetting.disable_mailing_list_mode = false
 
       val = updater.update(mailing_list_mode: true, email_digests: true)
       expect(val).to be_truthy
@@ -171,7 +207,7 @@ describe UserUpdater do
       expect(user.user_option.mailing_list_mode).to eq true
     end
 
-    it "filters theme_ids blank values before updating perferences" do
+    it "filters theme_ids blank values before updating preferences" do
       user = Fabricate(:user)
       user.user_option.update!(theme_ids: [1])
       updater = UserUpdater.new(acting_user, user)
@@ -251,13 +287,25 @@ describe UserUpdater do
           updater.update(user_notification_schedule: schedule_attrs)
         }.to change { user.do_not_disturb_timings.count }.by(4)
       end
+
+      it "removes do_not_disturb_timings when the schedule is disabled" do
+        updater = UserUpdater.new(acting_user, user)
+        updater.update(user_notification_schedule: schedule_attrs)
+        expect(user.user_notification_schedule.enabled).to eq(true)
+
+        schedule_attrs[:enabled] = false
+        updater.update(user_notification_schedule: schedule_attrs)
+
+        expect(user.user_notification_schedule.enabled).to eq(false)
+        expect(user.do_not_disturb_timings.count).to eq(0)
+      end
     end
 
     context 'when sso overrides bio' do
       it 'does not change bio' do
-        SiteSetting.sso_url = "https://www.example.com/sso"
-        SiteSetting.enable_sso = true
-        SiteSetting.sso_overrides_bio = true
+        SiteSetting.discourse_connect_url = "https://www.example.com/sso"
+        SiteSetting.enable_discourse_connect = true
+        SiteSetting.discourse_connect_overrides_bio = true
 
         user = Fabricate(:user)
         updater = UserUpdater.new(acting_user, user)
@@ -271,9 +319,9 @@ describe UserUpdater do
 
     context 'when sso overrides location' do
       it 'does not change location' do
-        SiteSetting.sso_url = "https://www.example.com/sso"
-        SiteSetting.enable_sso = true
-        SiteSetting.sso_overrides_location = true
+        SiteSetting.discourse_connect_url = "https://www.example.com/sso"
+        SiteSetting.enable_discourse_connect = true
+        SiteSetting.discourse_connect_overrides_location = true
 
         user = Fabricate(:user)
         updater = UserUpdater.new(acting_user, user)
@@ -287,9 +335,9 @@ describe UserUpdater do
 
     context 'when sso overrides website' do
       it 'does not change website' do
-        SiteSetting.sso_url = "https://www.example.com/sso"
-        SiteSetting.enable_sso = true
-        SiteSetting.sso_overrides_website = true
+        SiteSetting.discourse_connect_url = "https://www.example.com/sso"
+        SiteSetting.enable_discourse_connect = true
+        SiteSetting.discourse_connect_overrides_website = true
 
         user = Fabricate(:user)
         updater = UserUpdater.new(acting_user, user)
@@ -353,6 +401,21 @@ describe UserUpdater do
 
         user.reload
         expect(user.primary_group_id).to eq new_group.id
+      end
+    end
+
+    context 'when updating flair group' do
+      let(:group) { Fabricate(:group, name: "Group", flair_bg_color: "#111111", flair_color: "#999999", flair_icon: "icon") }
+      let(:user) { Fabricate(:user) }
+
+      it 'updates when setting is enabled' do
+        group.add(user)
+
+        UserUpdater.new(acting_user, user).update(flair_group_id: group.id)
+        expect(user.reload.flair_group_id).to eq(group.id)
+
+        UserUpdater.new(acting_user, user).update(flair_group_id: "")
+        expect(user.reload.flair_group_id).to eq(nil)
       end
     end
 
@@ -484,11 +547,10 @@ describe UserUpdater do
     end
 
     it "logs the action" do
-      user_without_name = Fabricate(:user, name: nil)
       user = Fabricate(:user, name: 'Billy Bob')
 
       expect do
-        UserUpdater.new(acting_user, user).update(name: 'Jim Tom')
+        UserUpdater.new(user, user).update(name: 'Jim Tom')
       end.to change { UserHistory.count }.by(1)
 
       expect(UserHistory.last.action).to eq(
@@ -496,19 +558,21 @@ describe UserUpdater do
       )
 
       expect do
-        UserUpdater.new(acting_user, user).update(name: 'JiM TOm')
+        UserUpdater.new(user, user).update(name: 'JiM TOm')
       end.to_not change { UserHistory.count }
 
       expect do
-        UserUpdater.new(acting_user, user).update(bio_raw: 'foo bar')
+        UserUpdater.new(user, user).update(bio_raw: 'foo bar')
+      end.to_not change { UserHistory.count }
+
+      user_without_name = Fabricate(:user, name: nil)
+
+      expect do
+        UserUpdater.new(user_without_name, user_without_name).update(bio_raw: 'foo bar')
       end.to_not change { UserHistory.count }
 
       expect do
-        UserUpdater.new(acting_user, user_without_name).update(bio_raw: 'foo bar')
-      end.to_not change { UserHistory.count }
-
-      expect do
-        UserUpdater.new(acting_user, user_without_name).update(name: 'Jim Tom')
+        UserUpdater.new(user_without_name, user_without_name).update(name: 'Jim Tom')
       end.to change { UserHistory.count }.by(1)
 
       expect(UserHistory.last.action).to eq(
@@ -516,7 +580,7 @@ describe UserUpdater do
       )
 
       expect do
-        UserUpdater.new(acting_user, user).update(name: '')
+        UserUpdater.new(user, user).update(name: '')
       end.to change { UserHistory.count }.by(1)
 
       expect(UserHistory.last.action).to eq(

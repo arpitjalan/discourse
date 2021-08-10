@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-#mixin for all guardian methods dealing with topic permisions
+#mixin for all guardian methods dealing with topic permissions
 module TopicGuardian
 
   def can_remove_allowed_users?(topic, target_user = nil)
@@ -19,11 +19,19 @@ module TopicGuardian
 
     is_category_group_moderator?(topic.category)
   end
-  alias :can_moderate_topic? :can_review_topic?
+
+  def can_moderate_topic?(topic)
+    return false if anonymous? || topic.nil?
+    return true if is_staff?
+
+    can_perform_action_available_to_group_moderators?(topic)
+  end
 
   def can_create_shared_draft?
-    return false unless SiteSetting.shared_drafts_enabled?
+    SiteSetting.shared_drafts_enabled? && can_see_shared_draft?
+  end
 
+  def can_see_shared_draft?
     return is_admin? if SiteSetting.shared_drafts_min_trust_level.to_s == 'admin'
     return is_staff? if SiteSetting.shared_drafts_min_trust_level.to_s == 'staff'
 
@@ -39,7 +47,7 @@ module TopicGuardian
   end
 
   def can_publish_topic?(topic, category)
-    can_create_shared_draft? && can_see?(topic) && can_create_topic_on_category?(category)
+    can_see_shared_draft? && can_see?(topic) && can_create_topic_on_category?(category)
   end
 
   # Creating Methods
@@ -102,7 +110,7 @@ module TopicGuardian
       !topic.private_message? &&
       topic.category_id == SiteSetting.shared_drafts_category.to_i &&
       can_see_category?(topic.category) &&
-      can_create_shared_draft? &&
+      can_see_shared_draft? &&
       can_create_post?(topic)
     )
 
@@ -130,7 +138,6 @@ module TopicGuardian
       !Post.where(topic_id: topic.id, post_number: 1).where.not(locked_by_id: nil).exists?
   end
 
-  # Recovery Method
   def can_recover_topic?(topic)
     if is_staff? || (topic&.category && is_category_group_moderator?(topic.category))
       !!(topic && topic.deleted_at)
@@ -176,7 +183,7 @@ module TopicGuardian
       return authenticated? && topic.all_allowed_users.where(id: @user.id).exists?
     end
 
-    return false if topic.shared_draft && !can_create_shared_draft?
+    return false if topic.shared_draft && !can_see_shared_draft?
 
     category = topic.category
     can_see_category?(category) &&
@@ -189,12 +196,9 @@ module TopicGuardian
 
   def filter_allowed_categories(records)
     unless is_admin?
-      allowed_ids = allowed_category_ids
-      if allowed_ids.length > 0
-        records = records.where('topics.category_id IS NULL or topics.category_id IN (?)', allowed_ids)
-      else
-        records = records.where('topics.category_id IS NULL')
-      end
+      records = allowed_category_ids.size == 0 ?
+        records.where('topics.category_id IS NULL') :
+        records.where('topics.category_id IS NULL or topics.category_id IN (?)', allowed_category_ids)
       records = records.references(:categories)
     end
     records
@@ -202,6 +206,7 @@ module TopicGuardian
 
   def can_edit_featured_link?(category_id)
     return false unless SiteSetting.topic_featured_link_enabled
+    return false unless @user.trust_level >= TrustLevel.levels[:basic]
     Category.where(id: category_id || SiteSetting.uncategorized_category_id, topic_featured_link_allowed: true).exists?
   end
 
@@ -237,6 +242,7 @@ module TopicGuardian
   alias :can_open_topic? :can_perform_action_available_to_group_moderators?
   alias :can_split_merge_topic? :can_perform_action_available_to_group_moderators?
   alias :can_edit_staff_notes? :can_perform_action_available_to_group_moderators?
+  alias :can_pin_unpin_topic? :can_perform_action_available_to_group_moderators?
 
   def can_move_posts?(topic)
     return false if is_silenced?
@@ -246,5 +252,4 @@ module TopicGuardian
   def affected_by_slow_mode?(topic)
     topic&.slow_mode_seconds.to_i > 0 && @user.human? && !is_staff?
   end
-
 end

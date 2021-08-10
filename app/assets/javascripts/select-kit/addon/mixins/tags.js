@@ -1,6 +1,6 @@
 import I18n from "I18n";
 import Mixin from "@ember/object/mixin";
-import { ajax } from "discourse/lib/ajax";
+import { ajax } from "select-kit/lib/ajax-helper";
 import getURL from "discourse-common/lib/get-url";
 import { isEmpty } from "@ember/utils";
 import { makeArray } from "discourse-common/lib/helpers";
@@ -11,7 +11,6 @@ export default Mixin.create({
   searchTags(url, data, callback) {
     return ajax(getURL(url), {
       quietMillis: 200,
-      cache: true,
       dataType: "json",
       data,
     })

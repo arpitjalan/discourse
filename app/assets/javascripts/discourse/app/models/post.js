@@ -16,12 +16,17 @@ import { popupAjaxError } from "discourse/lib/ajax-error";
 import { postUrl } from "discourse/lib/utilities";
 import { propertyEqual } from "discourse/lib/computed";
 import { resolveShareUrl } from "discourse/helpers/share-url";
-import showModal from "discourse/lib/show-modal";
 import { userPath } from "discourse/lib/url";
 
 const Post = RestModel.extend({
-  @discourseComputed("url")
+  customShare: null,
+
+  @discourseComputed("url", "customShare")
   shareUrl(url) {
+    if (this.customShare) {
+      return this.customShare;
+    }
+
     const user = User.current();
     return resolveShareUrl(url, user);
   },
@@ -173,7 +178,6 @@ const Post = RestModel.extend({
 
     return ajax(`/posts/${this.id}/recover`, {
       type: "PUT",
-      cache: false,
     })
       .then((data) => {
         this.setProperties({
@@ -209,13 +213,9 @@ const Post = RestModel.extend({
     } else {
       const key =
         this.post_number === 1
-          ? "topic.deleted_by_author"
-          : "post.deleted_by_author";
-      promise = cookAsync(
-        I18n.t(key, {
-          count: this.siteSettings.delete_removed_posts_after,
-        })
-      ).then((cooked) => {
+          ? "topic.deleted_by_author_simple"
+          : "post.deleted_by_author_simple";
+      promise = cookAsync(I18n.t(key)).then((cooked) => {
         this.setProperties({
           cooked: cooked,
           can_delete: false,
@@ -304,58 +304,26 @@ const Post = RestModel.extend({
     return ajax(`/posts/${this.id}/unhide`, { type: "PUT" });
   },
 
-  toggleBookmark() {
-    let postEl = document.querySelector(`[data-post-id="${this.id}"]`);
-    let localDateEl = null;
-    if (postEl) {
-      localDateEl = postEl.querySelector(".discourse-local-date");
-    }
-
-    return new Promise((resolve) => {
-      let controller = showModal("bookmark", {
-        model: {
-          postId: this.id,
-          id: this.bookmark_id,
-          reminderAt: this.bookmark_reminder_at,
-          autoDeletePreference: this.bookmark_auto_delete_preference,
-          name: this.bookmark_name,
-          postDetectedLocalDate: localDateEl ? localDateEl.dataset.date : null,
-          postDetectedLocalTime: localDateEl ? localDateEl.dataset.time : null,
-          postDetectedLocalTimezone: localDateEl
-            ? localDateEl.dataset.timezone
-            : null,
-        },
-        title: this.bookmark_id
-          ? "post.bookmarks.edit"
-          : "post.bookmarks.create",
-        modalClass: "bookmark-with-reminder",
-      });
-      controller.setProperties({
-        onCloseWithoutSaving: () => {
-          resolve({ closedWithoutSaving: true });
-          this.appEvents.trigger("post-stream:refresh", { id: this.id });
-        },
-        afterSave: (savedData) => {
-          this.setProperties({
-            "topic.bookmarked": true,
-            bookmarked: true,
-            bookmark_reminder_at: savedData.reminderAt,
-            bookmark_reminder_type: savedData.reminderType,
-            bookmark_auto_delete_preference: savedData.autoDeletePreference,
-            bookmark_name: savedData.name,
-            bookmark_id: savedData.id,
-          });
-          resolve({ closedWithoutSaving: false });
-          this.appEvents.trigger("page:bookmark-post-toggled", this);
-          this.appEvents.trigger("post-stream:refresh", { id: this.id });
-        },
-        afterDelete: (topicBookmarked) => {
-          this.set("topic.bookmarked", topicBookmarked);
-          this.clearBookmark();
-          this.appEvents.trigger("page:bookmark-post-toggled", this);
-        },
-      });
+  createBookmark(data) {
+    this.setProperties({
+      "topic.bookmarked": true,
+      bookmarked: true,
+      bookmark_reminder_at: data.reminderAt,
+      bookmark_reminder_type: data.reminderType,
+      bookmark_auto_delete_preference: data.autoDeletePreference,
+      bookmark_name: data.name,
+      bookmark_id: data.id,
     });
+    this.topic.incrementProperty("bookmarksWereChanged");
+    this.appEvents.trigger("page:bookmark-post-toggled", this);
+    this.appEvents.trigger("post-stream:refresh", { id: this.id });
+  },
+
+  deleteBookmark(bookmarked) {
+    this.set("topic.bookmarked", bookmarked);
+    this.clearBookmark();
+    this.topic.incrementProperty("bookmarksWereChanged");
+    this.appEvents.trigger("page:bookmark-post-toggled", this);
   },
 
   clearBookmark() {
@@ -367,6 +335,7 @@ const Post = RestModel.extend({
       bookmarked: false,
       bookmark_auto_delete_preference: null,
     });
+    this.topic.incrementProperty("bookmarksWereChanged");
   },
 
   updateActionsSummary(json) {
@@ -435,7 +404,7 @@ Post.reopenClass({
     return ajax("/posts/merge_posts", {
       type: "PUT",
       data: { post_ids },
-    });
+    }).catch(popupAjaxError);
   },
 
   loadRevision(postId, version) {

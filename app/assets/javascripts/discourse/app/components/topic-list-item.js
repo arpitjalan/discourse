@@ -2,6 +2,7 @@ import discourseComputed, { observes } from "discourse-common/utils/decorators";
 import Component from "@ember/component";
 import DiscourseURL from "discourse/lib/url";
 import I18n from "I18n";
+import { RUNTIME_OPTIONS } from "discourse-common/lib/raw-handlebars-helpers";
 import { alias } from "@ember/object/computed";
 import { findRawTemplate } from "discourse-common/lib/raw-templates";
 import { on } from "@ember/object/evented";
@@ -37,7 +38,7 @@ export function navigateToTopic(topic, href) {
 export default Component.extend({
   tagName: "tr",
   classNameBindings: [":topic-list-item", "unboundClassNames", "topic.visited"],
-  attributeBindings: ["data-topic-id"],
+  attributeBindings: ["data-topic-id", "role", "ariaLevel:aria-level"],
   "data-topic-id": alias("topic.id"),
 
   didReceiveAttrs() {
@@ -49,7 +50,15 @@ export default Component.extend({
   renderTopicListItem() {
     const template = findRawTemplate("list/topic-list-item");
     if (template) {
-      this.set("topicListItemContents", template(this).htmlSafe());
+      this.set(
+        "topicListItemContents",
+        template(this, RUNTIME_OPTIONS).htmlSafe()
+      );
+      schedule("afterRender", () => {
+        if (this.selected && this.selected.includes(this.topic)) {
+          this.element.querySelector("input.bulk-select").checked = true;
+        }
+      });
     }
   },
 
@@ -133,8 +142,8 @@ export default Component.extend({
       classes.push("unseen-topic");
     }
 
-    if (topic.get("displayNewPosts")) {
-      classes.push("new-posts");
+    if (topic.unread_posts) {
+      classes.push("unread-posts");
     }
 
     ["liked", "archived", "bookmarked", "pinned", "closed"].forEach((name) => {
@@ -224,12 +233,6 @@ export default Component.extend({
     }
 
     return this.unhandledRowClick(e, topic);
-  },
-
-  actions: {
-    toggleBookmark() {
-      this.topic.toggleBookmark().finally(() => this.renderTopicListItem());
-    },
   },
 
   unhandledRowClick() {},

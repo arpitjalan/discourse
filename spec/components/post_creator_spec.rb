@@ -165,7 +165,10 @@ describe PostCreator do
             "/latest",
             "/latest",
             "/topic/#{created_post.topic_id}",
-            "/topic/#{created_post.topic_id}"
+            "/topic/#{created_post.topic_id}",
+            "/user",
+            "/user",
+            "/user"
           ].sort
         )
 
@@ -194,7 +197,10 @@ describe PostCreator do
         user_action = messages.find { |m| m.channel == "/u/#{p.user.username}" }
         expect(user_action).not_to eq(nil)
 
-        expect(messages.filter { |m| m.channel != "/distributed_hash" }.length).to eq(5)
+        draft_count = messages.find { |m| m.channel == "/user" }
+        expect(draft_count).not_to eq(nil)
+
+        expect(messages.filter { |m| m.channel != "/distributed_hash" }.length).to eq(7)
       end
 
       it 'extracts links from the post' do
@@ -281,12 +287,14 @@ describe PostCreator do
       it 'creates post stats' do
         Draft.set(user, Draft::NEW_TOPIC, 0, "test")
         Draft.set(user, Draft::NEW_TOPIC, 0, "test1")
+        expect(user.user_stat.draft_count).to eq(1)
 
         begin
           PostCreator.track_post_stats = true
           post = creator.create
           expect(post.post_stat.typing_duration_msecs).to eq(0)
           expect(post.post_stat.drafts_saved).to eq(2)
+          expect(user.reload.user_stat.draft_count).to eq(0)
         ensure
           PostCreator.track_post_stats = false
         end
@@ -345,7 +353,7 @@ describe PostCreator do
               based_on_last_post: true,
               execute_at: Time.zone.now - 12.hours,
               created_at: Time.zone.now - 24.hours,
-              duration: 12
+              duration_minutes: 12 * 60
             )
           end
 
@@ -492,6 +500,47 @@ describe PostCreator do
               existing_tag1 = Fabricate(:tag, name: tag_names[1])
               expect { @post = creator_with_tags.create }.to change { Tag.count }.by(0)
               expect(@post.topic.tags.map(&:name)).to eq([existing_tag1.name])
+            end
+          end
+
+          context "automatically tags first posts" do
+            before do
+              SiteSetting.min_trust_to_create_tag = 0
+              SiteSetting.min_trust_level_to_tag_topics = 0
+            end
+
+            context "without regular expressions" do
+              it "works with many tags" do
+                Fabricate(:watched_word, action: WatchedWord.actions[:tag], word: "HELLO", replacement: "greetings , hey")
+
+                @post = creator.create
+                expect(@post.topic.tags.map(&:name)).to match_array(['greetings', 'hey'])
+              end
+
+              it "works with overlapping words" do
+                Fabricate(:watched_word, action: WatchedWord.actions[:tag], word: "art", replacement: "about-art")
+                Fabricate(:watched_word, action: WatchedWord.actions[:tag], word: "artist*", replacement: "about-artists")
+
+                post = PostCreator.new(user, title: "hello world topic", raw: "this is topic abour artists", archetype_id: 1).create
+                expect(post.topic.tags.map(&:name)).to match_array(['about-artists'])
+              end
+
+              it "does not treat as regular expressions" do
+                Fabricate(:watched_word, action: WatchedWord.actions[:tag], word: "he(llo|y)", replacement: "greetings , hey")
+
+                @post = creator_with_tags.create
+                expect(@post.topic.tags.map(&:name)).to match_array(tag_names)
+              end
+            end
+
+            context "with regular expressions" do
+              it "works" do
+                SiteSetting.watched_words_regular_expressions = true
+                Fabricate(:watched_word, action: WatchedWord.actions[:tag], word: "he(llo|y)", replacement: "greetings , hey")
+
+                @post = creator_with_tags.create
+                expect(@post.topic.tags.map(&:name)).to match_array(tag_names + ['greetings', 'hey'])
+              end
             end
           end
         end
@@ -641,7 +690,7 @@ describe PostCreator do
         SiteSetting.unique_posts_mins = 10
       end
 
-      it "fails for dupe post accross topic" do
+      it "fails for dupe post across topic" do
         first = create_post(raw: "this is a test #{SecureRandom.hex}")
         second = create_post(raw: "this is a test #{SecureRandom.hex}")
 
@@ -701,6 +750,13 @@ describe PostCreator do
         group_name == (Group[:moderators].name) && msg_type == (:spam_post_blocked) && params[:user].id == (user.id)
       end
       creator.create
+    end
+
+    it 'does not create a reviewable post if the review_every_post setting is enabled' do
+      SiteSetting.review_every_post = true
+      GroupMessage.stubs(:create)
+
+      expect { creator.create }.to change(ReviewablePost, :count).by(0)
     end
 
   end
@@ -861,13 +917,15 @@ describe PostCreator do
   context 'private message' do
     let(:target_user1) { Fabricate(:coding_horror) }
     fab!(:target_user2) { Fabricate(:moderator) }
-    fab!(:unrelated) { Fabricate(:user) }
+    fab!(:unrelated_user) { Fabricate(:user) }
     let(:post) do
-      PostCreator.create(user, title: 'hi there welcome to my topic',
-                               raw: "this is my awesome message @#{unrelated.username_lower}",
-                               archetype: Archetype.private_message,
-                               target_usernames: [target_user1.username, target_user2.username].join(','),
-                               category: 1)
+      PostCreator.create!(user,
+        title: 'hi there welcome to my topic',
+        raw: "this is my awesome message @#{unrelated_user.username_lower}",
+        archetype: Archetype.private_message,
+        target_usernames: [target_user1.username, target_user2.username].join(','),
+        category: 1
+      )
     end
 
     it 'acts correctly' do
@@ -886,7 +944,7 @@ describe PostCreator do
       expect(post.topic.category).to eq(nil)
 
       # does not notify an unrelated user
-      expect(unrelated.notifications.count).to eq(0)
+      expect(unrelated_user.notifications.count).to eq(0)
       expect(post.topic.subtype).to eq(TopicSubtype.user_to_user)
 
       # PMs do not increase post count or topic count
@@ -901,8 +959,10 @@ describe PostCreator do
 
       # if an admin replies they should be added to the allowed user list
       admin = Fabricate(:admin)
-      PostCreator.create(admin, raw: 'hi there welcome topic, I am a mod',
-                                topic_id: post.topic_id)
+      PostCreator.create!(admin,
+        raw: 'hi there welcome topic, I am a mod',
+        topic_id: post.topic_id
+      )
 
       post.topic.reload
       expect(post.topic.topic_allowed_users.where(user_id: admin.id).count).to eq(1)
@@ -915,9 +975,25 @@ describe PostCreator do
       admin2 = Fabricate(:admin)
       group.add(admin2)
 
-      PostCreator.create(admin2, raw: 'I am also an admin, and a mod', topic_id: post.topic_id)
+      PostCreator.create!(admin2, raw: 'I am also an admin, and a mod', topic_id: post.topic_id)
 
       expect(post.topic.topic_allowed_users.where(user_id: admin2.id).count).to eq(0)
+    end
+
+    it 'does not add whisperers to allowed users of the topic' do
+      SiteSetting.enable_whispers = true
+      unrelated_user.update!(admin: true)
+
+      PostCreator.create!(
+        unrelated_user,
+        raw: "This is a whisper that I am testing",
+        topic_id: post.topic_id,
+        post_type: Post.types[:whisper]
+      )
+
+      expect(post.topic.topic_allowed_users.map(&:user_id)).to contain_exactly(
+        target_user1.id, target_user2.id, user.id
+      )
     end
 
     it 'does not increase posts count for small actions' do
@@ -1193,7 +1269,7 @@ describe PostCreator do
       DiscourseEvent.off(:topic_created, &@increase_topics)
     end
 
-    it "fires boths event when creating a topic" do
+    it "fires both event when creating a topic" do
       pc = PostCreator.new(user, raw: 'this is the new content for my topic', title: 'this is my new topic title')
       _post = pc.create
       expect(@posts_created).to eq(1)
@@ -1708,6 +1784,25 @@ describe PostCreator do
         topic_id: public_topic.id,
         raw: "A public post with an image.\n![](#{image_upload.short_path})"
       )
+    end
+  end
+
+  context 'queue for review' do
+    before { SiteSetting.review_every_post = true }
+
+    it 'created a reviewable post after creating the post' do
+      title = "This is a valid title"
+      raw = "This is a really awesome post"
+
+      post_creator = PostCreator.new(user, title: title, raw: raw)
+
+      expect { post_creator.create }.to change(ReviewablePost, :count).by(1)
+    end
+
+    it 'does not create a reviewable post if the post is not valid' do
+      post_creator = PostCreator.new(user, title: '', raw: '')
+
+      expect { post_creator.create }.to change(ReviewablePost, :count).by(0)
     end
   end
 end

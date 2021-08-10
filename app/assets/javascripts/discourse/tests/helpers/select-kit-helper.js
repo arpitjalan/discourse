@@ -1,4 +1,4 @@
-import { click, fillIn } from "@ember/test-helpers";
+import { click, fillIn, triggerEvent } from "@ember/test-helpers";
 import { exists, queryAll } from "discourse/tests/helpers/qunit-helpers";
 import { isEmpty } from "@ember/utils";
 import { moduleForComponent } from "ember-qunit";
@@ -57,7 +57,7 @@ async function selectKitSelectNoneRow(selector) {
 
 async function selectKitSelectRowByIndex(index, selector) {
   checkSelectKitIsNotCollapsed(selector);
-  await click(queryAll(`${selector} .select-kit-row`).eq(index));
+  await click(queryAll(`${selector} .select-kit-row`)[index]);
 }
 
 async function keyboardHelper(value, target, selector) {
@@ -66,23 +66,27 @@ async function keyboardHelper(value, target, selector) {
   if (value === "selectAll") {
     // special casing the only one not working with triggerEvent
     const event = jQuery.Event("keydown");
+    event.key = "A";
     event.keyCode = 65;
     event.metaKey = true;
     target.trigger(event);
   } else {
     const mapping = {
-      enter: { keyCode: 13 },
-      backspace: { keyCode: 8 },
-      escape: { keyCode: 27 },
-      down: { keyCode: 40 },
-      up: { keyCode: 38 },
-      tab: { keyCode: 9 },
+      enter: { key: "Enter", keyCode: 13 },
+      backspace: { key: "Backspace", keyCode: 8 },
+      escape: { key: "Escape", keyCode: 27 },
+      down: { key: "ArrowDown", keyCode: 40 },
+      up: { key: "ArrowUp", keyCode: 38 },
+      tab: { key: "Tab", keyCode: 9 },
     };
 
     await triggerEvent(
-      target,
+      target[0],
       "keydown",
-      mapping[value] || { keyCode: value.charCodeAt(0) }
+      mapping[value.toLowerCase()] || {
+        key: value,
+        keyCode: value.charCodeAt(0),
+      }
     );
   }
 }
@@ -211,6 +215,10 @@ export default function selectKit(selector) {
       return queryAll(selector).hasClass("is-hidden");
     },
 
+    isDisabled() {
+      return queryAll(selector).hasClass("is-disabled");
+    },
+
     header() {
       return headerHelper(queryAll(selector).find(".select-kit-header"));
     },
@@ -286,7 +294,7 @@ export default function selectKit(selector) {
       await click(
         queryAll(selector)
           .find(".select-kit-header")
-          .find(`[data-value="${value}"]`)
+          .find(`[data-value="${value}"]`)[0]
       );
     },
 

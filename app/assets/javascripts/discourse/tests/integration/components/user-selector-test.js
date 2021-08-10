@@ -1,10 +1,8 @@
 import componentTest, {
   setupRenderingTest,
 } from "discourse/tests/helpers/component-test";
-import {
-  discourseModule,
-  queryAll,
-} from "discourse/tests/helpers/qunit-helpers";
+import { discourseModule, query } from "discourse/tests/helpers/qunit-helpers";
+import hbs from "htmlbars-inline-precompile";
 
 function paste(element, text) {
   let e = new Event("paste");
@@ -16,14 +14,14 @@ discourseModule("Integration | Component | user-selector", function (hooks) {
   setupRenderingTest(hooks);
 
   componentTest("pasting a list of usernames", {
-    template: `{{user-selector usernames=usernames class="test-selector"}}`,
+    template: hbs`{{user-selector usernames=usernames class="test-selector"}}`,
 
     beforeEach() {
       this.set("usernames", "evil,trout");
     },
 
     test(assert) {
-      let element = queryAll(".test-selector")[0];
+      let element = query(".test-selector");
 
       assert.equal(this.get("usernames"), "evil,trout");
       paste(element, "zip,zap,zoom");
@@ -46,7 +44,7 @@ discourseModule("Integration | Component | user-selector", function (hooks) {
   });
 
   componentTest("excluding usernames", {
-    template: `{{user-selector usernames=usernames excludedUsernames=excludedUsernames class="test-selector"}}`,
+    template: hbs`{{user-selector usernames=usernames excludedUsernames=excludedUsernames class="test-selector"}}`,
 
     beforeEach() {
       this.set("usernames", "mark");
@@ -54,7 +52,7 @@ discourseModule("Integration | Component | user-selector", function (hooks) {
     },
 
     test(assert) {
-      let element = queryAll(".test-selector")[0];
+      let element = query(".test-selector");
       paste(element, "roman,penar,jeff,robin");
       assert.equal(this.get("usernames"), "mark,roman,penar");
     },

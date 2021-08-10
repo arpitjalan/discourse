@@ -33,8 +33,8 @@ export default Service.extend({
     return AdminUser.find(userId).then((au) => this.spammerDetails(au));
   },
 
-  deleteUser(id) {
-    AdminUser.find(id).then((user) => user.destroy({ deletePosts: true }));
+  deleteUser(id, formData) {
+    return AdminUser.find(id).then((user) => user.destroy(formData));
   },
 
   spammerDetails(adminUser) {
@@ -48,7 +48,6 @@ export default Service.extend({
 
   _showControlModal(type, user, opts) {
     opts = opts || {};
-
     let controller = showModal(`admin-${type}-user`, {
       admin: true,
       modalClass: `${type}-user-modal`,
@@ -65,6 +64,8 @@ export default Service.extend({
         before: opts.before,
         successCallback: opts.successCallback,
       });
+
+      controller.finishedSetup();
     });
   },
 

@@ -1,13 +1,18 @@
 import {
   acceptance,
+  exists,
+  fakeTime,
+  loggedInUser,
   queryAll,
   updateCurrentUser,
 } from "discourse/tests/helpers/qunit-helpers";
 import { click, fillIn, visit } from "@ember/test-helpers";
-import { skip, test } from "qunit";
+import { test } from "qunit";
 import selectKit from "discourse/tests/helpers/select-kit-helper";
+import I18n from "I18n";
 
 acceptance("Topic - Edit timer", function (needs) {
+  let clock = null;
   needs.user();
   needs.pretender((server, helper) => {
     server.post("/t/280/timer", () =>
@@ -16,7 +21,7 @@ acceptance("Topic - Edit timer", function (needs) {
         execute_at: new Date(
           new Date().getTime() + 1 * 60 * 60 * 1000
         ).toISOString(),
-        duration: 1,
+        duration_minutes: 1440,
         based_on_last_post: false,
         closed: false,
         category_id: null,
@@ -24,164 +29,106 @@ acceptance("Topic - Edit timer", function (needs) {
     );
   });
 
-  test("default", async function (assert) {
-    updateCurrentUser({ moderator: true });
-    const futureDateInputSelector = selectKit(".future-date-input-selector");
+  needs.hooks.beforeEach(() => {
+    const timezone = loggedInUser().resolvedTimezone(loggedInUser());
+    const tuesday = "2100-06-15T08:00:00";
+    clock = fakeTime(tuesday, timezone, true);
+  });
 
-    await visit("/t/internationalization-localization");
-    await click(".toggle-admin-menu");
-    await click(".topic-admin-status-update button");
-
-    assert.equal(
-      futureDateInputSelector.header().label(),
-      "Select a timeframe"
-    );
-    assert.equal(futureDateInputSelector.header().value(), null);
+  needs.hooks.afterEach(() => {
+    clock.restore();
   });
 
   test("autoclose - specific time", async function (assert) {
     updateCurrentUser({ moderator: true });
-    const futureDateInputSelector = selectKit(".future-date-input-selector");
-
     await visit("/t/internationalization-localization");
     await click(".toggle-admin-menu");
-    await click(".topic-admin-status-update button");
+    await click(".admin-topic-timer-update button");
 
-    await futureDateInputSelector.expand();
-    await futureDateInputSelector.selectRowByValue("next_week");
-
-    assert.ok(futureDateInputSelector.header().label().includes("Next week"));
-    assert.equal(futureDateInputSelector.header().value(), "next_week");
+    await click("#tap_tile_start_of_next_business_week");
 
     const regex = /will automatically close in/g;
-    const html = queryAll(".future-date-input .topic-status-info")
+    const html = queryAll(".edit-topic-timer-modal .topic-timer-info")
       .html()
       .trim();
     assert.ok(regex.test(html));
   });
 
-  skip("autoclose", async function (assert) {
+  test("autoclose", async function (assert) {
     updateCurrentUser({ moderator: true });
-    const futureDateInputSelector = selectKit(".future-date-input-selector");
 
     await visit("/t/internationalization-localization");
     await click(".toggle-admin-menu");
-    await click(".topic-admin-status-update button");
+    await click(".admin-topic-timer-update button");
 
-    await futureDateInputSelector.expand();
-    await futureDateInputSelector.selectRowByValue("next_week");
-
-    assert.ok(futureDateInputSelector.header().label().includes("Next week"));
-    assert.equal(futureDateInputSelector.header().value(), "next_week");
+    await click("#tap_tile_start_of_next_business_week");
 
     const regex1 = /will automatically close in/g;
-    const html1 = queryAll(".future-date-input .topic-status-info")
+    const html1 = queryAll(".edit-topic-timer-modal .topic-timer-info")
       .html()
       .trim();
     assert.ok(regex1.test(html1));
 
-    await futureDateInputSelector.expand();
-    await futureDateInputSelector.selectRowByValue("pick_date_and_time");
-
-    await fillIn(".future-date-input .date-picker", "2099-11-24");
-
-    assert.ok(
-      futureDateInputSelector.header().label().includes("Pick date and time")
-    );
-    assert.equal(
-      futureDateInputSelector.header().value(),
-      "pick_date_and_time"
-    );
+    await click("#tap_tile_custom");
+    await fillIn(".tap-tile-date-input .date-picker", "2100-11-24");
 
     const regex2 = /will automatically close in/g;
-    const html2 = queryAll(".future-date-input .topic-status-info")
+    const html2 = queryAll(".edit-topic-timer-modal .topic-timer-info")
       .html()
       .trim();
     assert.ok(regex2.test(html2));
 
-    await futureDateInputSelector.expand();
-    await futureDateInputSelector.selectRowByValue("set_based_on_last_post");
+    const timerType = selectKit(".select-kit.timer-type");
+    await timerType.expand();
+    await timerType.selectRowByValue("close_after_last_post");
 
-    await fillIn(".future-date-input input[type=number]", "2");
+    const interval = selectKit(".select-kit.relative-time-intervals");
+    await interval.expand();
+    await interval.selectRowByValue("hours");
+    await fillIn(".relative-time-duration", "2");
 
-    assert.ok(
-      futureDateInputSelector
-        .header()
-        .label()
-        .includes("Close based on last post")
-    );
-    assert.equal(
-      futureDateInputSelector.header().value(),
-      "set_based_on_last_post"
-    );
-
-    const regex3 = /This topic will close.*after the last reply/g;
-    const html3 = queryAll(".future-date-input .topic-status-info")
-      .html()
-      .trim();
+    const regex3 = /last post in the topic is already/g;
+    const html3 = queryAll(".edit-topic-timer-modal .warning").html().trim();
     assert.ok(regex3.test(html3));
   });
 
   test("close temporarily", async function (assert) {
     updateCurrentUser({ moderator: true });
     const timerType = selectKit(".select-kit.timer-type");
-    const futureDateInputSelector = selectKit(".future-date-input-selector");
 
     await visit("/t/internationalization-localization");
     await click(".toggle-admin-menu");
-    await click(".topic-admin-status-update button");
+    await click(".admin-topic-timer-update button");
 
     await timerType.expand();
     await timerType.selectRowByValue("open");
 
-    assert.equal(
-      futureDateInputSelector.header().label(),
-      "Select a timeframe"
-    );
-    assert.equal(futureDateInputSelector.header().value(), null);
-
-    await futureDateInputSelector.expand();
-    await futureDateInputSelector.selectRowByValue("next_week");
-
-    assert.ok(futureDateInputSelector.header().label().includes("Next week"));
-    assert.equal(futureDateInputSelector.header().value(), "next_week");
+    await click("#tap_tile_start_of_next_business_week");
 
     const regex1 = /will automatically open in/g;
-    const html1 = queryAll(".future-date-input .topic-status-info")
+    const html1 = queryAll(".edit-topic-timer-modal .topic-timer-info")
       .html()
       .trim();
     assert.ok(regex1.test(html1));
 
-    await futureDateInputSelector.expand();
-    await futureDateInputSelector.selectRowByValue("pick_date_and_time");
-
-    await fillIn(".future-date-input .date-picker", "2099-11-24");
-
-    assert.equal(
-      futureDateInputSelector.header().label(),
-      "Pick date and time"
-    );
-    assert.equal(
-      futureDateInputSelector.header().value(),
-      "pick_date_and_time"
-    );
+    await click("#tap_tile_custom");
+    await fillIn(".tap-tile-date-input .date-picker", "2100-11-24");
 
     const regex2 = /will automatically open in/g;
-    const html2 = queryAll(".future-date-input .topic-status-info")
+    const html2 = queryAll(".edit-topic-timer-modal .topic-timer-info")
       .html()
       .trim();
     assert.ok(regex2.test(html2));
   });
 
-  test("schedule", async function (assert) {
+  test("schedule publish to category - visible for a PM", async function (assert) {
     updateCurrentUser({ moderator: true });
     const timerType = selectKit(".select-kit.timer-type");
     const categoryChooser = selectKit(".modal-body .category-chooser");
-    const futureDateInputSelector = selectKit(".future-date-input-selector");
 
-    await visit("/t/internationalization-localization");
+    await visit("/t/pm-for-testing/12");
     await click(".toggle-admin-menu");
-    await click(".topic-admin-status-update button");
+    await click(".admin-topic-timer-update button");
 
     await timerType.expand();
     await timerType.selectRowByValue("publish_to_category");
@@ -189,26 +136,162 @@ acceptance("Topic - Edit timer", function (needs) {
     assert.equal(categoryChooser.header().label(), "uncategorized");
     assert.equal(categoryChooser.header().value(), null);
 
-    assert.equal(
-      futureDateInputSelector.header().label(),
-      "Select a timeframe"
+    await categoryChooser.expand();
+    await categoryChooser.selectRowByValue("7");
+
+    await click("#tap_tile_start_of_next_business_week");
+
+    const text = queryAll(".edit-topic-timer-modal .topic-timer-info")
+      .text()
+      .trim();
+
+    // this needs to be done because there is no simple way to get the
+    // plain text version of a translation with HTML
+    let el = document.createElement("p");
+    el.innerHTML = I18n.t(
+      "topic.status_update_notice.auto_publish_to_category",
+      {
+        categoryUrl: "/c/dev/7",
+        categoryName: "dev",
+        timeLeft: "in 6 days",
+      }
     );
-    assert.equal(futureDateInputSelector.header().value(), null);
+
+    assert.equal(text, el.innerText);
+  });
+
+  test("schedule publish to category - visible for a private category", async function (assert) {
+    updateCurrentUser({ moderator: true });
+    const timerType = selectKit(".select-kit.timer-type");
+    const categoryChooser = selectKit(".modal-body .category-chooser");
+
+    // has private category id 24 (shared drafts)
+    await visit("/t/some-topic/9");
+    await click(".toggle-admin-menu");
+    await click(".admin-topic-timer-update button");
+
+    await timerType.expand();
+    await timerType.selectRowByValue("publish_to_category");
+
+    assert.equal(categoryChooser.header().label(), "uncategorized");
+    assert.equal(categoryChooser.header().value(), null);
 
     await categoryChooser.expand();
     await categoryChooser.selectRowByValue("7");
 
-    await futureDateInputSelector.expand();
-    await futureDateInputSelector.selectRowByValue("next_week");
+    await click("#tap_tile_start_of_next_business_week");
 
-    assert.ok(futureDateInputSelector.header().label().includes("Next week"));
-    assert.equal(futureDateInputSelector.header().value(), "next_week");
-
-    const regex = /will be published to #dev/g;
-    const text = queryAll(".future-date-input .topic-status-info")
+    const text = queryAll(".edit-topic-timer-modal .topic-timer-info")
       .text()
       .trim();
+
+    // this needs to be done because there is no simple way to get the
+    // plain text version of a translation with HTML
+    let el = document.createElement("p");
+    el.innerHTML = I18n.t(
+      "topic.status_update_notice.auto_publish_to_category",
+      {
+        categoryUrl: "/c/dev/7",
+        categoryName: "dev",
+        timeLeft: "in 6 days",
+      }
+    );
+
+    assert.equal(text, el.innerText);
+  });
+
+  test("schedule publish to category - visible for an unlisted public topic", async function (assert) {
+    updateCurrentUser({ moderator: true });
+    const timerType = selectKit(".select-kit.timer-type");
+    const categoryChooser = selectKit(".modal-body .category-chooser");
+
+    await visit("/t/internationalization-localization/280");
+
+    // make topic not visible
+    await click(".toggle-admin-menu");
+    await click(".topic-admin-visible .btn");
+
+    await click(".toggle-admin-menu");
+    await click(".admin-topic-timer-update button");
+
+    await timerType.expand();
+    await timerType.selectRowByValue("publish_to_category");
+
+    assert.equal(categoryChooser.header().label(), "uncategorized");
+    assert.equal(categoryChooser.header().value(), null);
+
+    await categoryChooser.expand();
+    await categoryChooser.selectRowByValue("7");
+
+    await click("#tap_tile_start_of_next_business_week");
+
+    const text = queryAll(".edit-topic-timer-modal .topic-timer-info")
+      .text()
+      .trim();
+
+    // this needs to be done because there is no simple way to get the
+    // plain text version of a translation with HTML
+    let el = document.createElement("p");
+    el.innerHTML = I18n.t(
+      "topic.status_update_notice.auto_publish_to_category",
+      {
+        categoryUrl: "/c/dev/7",
+        categoryName: "dev",
+        timeLeft: "in 6 days",
+      }
+    );
+
+    assert.equal(text, el.innerText);
+  });
+
+  test("schedule publish to category - last custom date and time", async function (assert) {
+    updateCurrentUser({ moderator: true });
+
+    await visit("/t/internationalization-localization");
+    await click(".toggle-admin-menu");
+    await click(".admin-topic-timer-update button");
+
+    await click("#tap_tile_custom");
+    await click(".modal-close");
+
+    await click(".toggle-admin-menu");
+    await click(".admin-topic-timer-update button");
+
+    assert.notOk(
+      exists("#tap_tile_last_custom"),
+      "it does not show last custom if the custom date and time was not filled and valid"
+    );
+
+    await click("#tap_tile_custom");
+    await fillIn(".tap-tile-date-input .date-picker", "2100-11-24");
+    await fillIn("#custom-time", "10:30");
+    await click(".edit-topic-timer-buttons button.btn-primary");
+
+    await click(".toggle-admin-menu");
+    await click(".admin-topic-timer-update button");
+
+    assert.ok(
+      exists("#tap_tile_last_custom"),
+      "it show last custom because the custom date and time was valid"
+    );
+    const text = queryAll("#tap_tile_last_custom").text().trim();
+    const regex = /Nov 24, 10:30 am/g;
     assert.ok(regex.test(text));
+  });
+
+  test("schedule publish to category - does not show for a public topic", async function (assert) {
+    updateCurrentUser({ moderator: true });
+    const timerType = selectKit(".select-kit.timer-type");
+
+    await visit("/t/internationalization-localization");
+    await click(".toggle-admin-menu");
+    await click(".admin-topic-timer-update button");
+
+    await timerType.expand();
+    assert.notOk(
+      timerType.rowByValue("publish_to_category").exists(),
+      "publish to category is not shown for a public topic"
+    );
   });
 
   test("TL4 can't auto-delete", async function (assert) {
@@ -216,7 +299,7 @@ acceptance("Topic - Edit timer", function (needs) {
 
     await visit("/t/internationalization-localization");
     await click(".toggle-admin-menu");
-    await click(".topic-admin-status-update button");
+    await click(".admin-topic-timer-update button");
 
     const timerType = selectKit(".select-kit.timer-type");
 
@@ -228,29 +311,18 @@ acceptance("Topic - Edit timer", function (needs) {
   test("auto delete", async function (assert) {
     updateCurrentUser({ moderator: true });
     const timerType = selectKit(".select-kit.timer-type");
-    const futureDateInputSelector = selectKit(".future-date-input-selector");
 
     await visit("/t/internationalization-localization");
     await click(".toggle-admin-menu");
-    await click(".topic-admin-status-update button");
+    await click(".admin-topic-timer-update button");
 
     await timerType.expand();
     await timerType.selectRowByValue("delete");
 
-    assert.equal(
-      futureDateInputSelector.header().label(),
-      "Select a timeframe"
-    );
-    assert.equal(futureDateInputSelector.header().value(), null);
-
-    await futureDateInputSelector.expand();
-    await futureDateInputSelector.selectRowByValue("two_weeks");
-
-    assert.ok(futureDateInputSelector.header().label().includes("Two Weeks"));
-    assert.equal(futureDateInputSelector.header().value(), "two_weeks");
+    await click("#tap_tile_two_weeks");
 
     const regex = /will be automatically deleted/g;
-    const html = queryAll(".future-date-input .topic-status-info")
+    const html = queryAll(".edit-topic-timer-modal .topic-timer-info")
       .html()
       .trim();
     assert.ok(regex.test(html));
@@ -258,22 +330,44 @@ acceptance("Topic - Edit timer", function (needs) {
 
   test("Inline delete timer", async function (assert) {
     updateCurrentUser({ moderator: true });
-    const futureDateInputSelector = selectKit(".future-date-input-selector");
 
     await visit("/t/internationalization-localization");
     await click(".toggle-admin-menu");
-    await click(".topic-admin-status-update button");
-    await futureDateInputSelector.expand();
-    await futureDateInputSelector.selectRowByValue("next_week");
-    await click(".modal-footer button.btn-primary");
+    await click(".admin-topic-timer-update button");
+    await click("#tap_tile_start_of_next_business_week");
+    await click(".edit-topic-timer-buttons button.btn-primary");
 
-    const removeTimerButton = queryAll(
-      ".topic-status-info .topic-timer-remove"
-    );
+    const removeTimerButton = queryAll(".topic-timer-info .topic-timer-remove");
     assert.equal(removeTimerButton.attr("title"), "remove timer");
 
-    await click(".topic-status-info .topic-timer-remove");
-    const topicStatusInfo = queryAll(".topic-status-info .topic-timer-remove");
-    assert.equal(topicStatusInfo.length, 0);
+    await click(".topic-timer-info .topic-timer-remove");
+    const topicTimerInfo = queryAll(".topic-timer-info .topic-timer-remove");
+    assert.equal(topicTimerInfo.length, 0);
+  });
+
+  test("Shows correct time frame options", async function (assert) {
+    updateCurrentUser({ moderator: true });
+
+    await visit("/t/internationalization-localization");
+    await click(".toggle-admin-menu");
+    await click(".admin-topic-timer-update button");
+
+    const expected = [
+      I18n.t("time_shortcut.tomorrow"),
+      I18n.t("time_shortcut.this_weekend"),
+      I18n.t("time_shortcut.start_of_next_business_week"),
+      I18n.t("time_shortcut.two_weeks"),
+      I18n.t("time_shortcut.next_month"),
+      I18n.t("time_shortcut.six_months"),
+      I18n.t("time_shortcut.custom"),
+    ];
+
+    const options = Array.from(
+      queryAll("div.tap-tile-grid div.tap-tile-title").map((_, div) =>
+        div.innerText.trim()
+      )
+    );
+
+    assert.deepEqual(options, expected);
   });
 });

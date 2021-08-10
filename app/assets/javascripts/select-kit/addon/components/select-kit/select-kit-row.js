@@ -69,6 +69,10 @@ export default Component.extend(UtilsMixin, {
     );
   }),
 
+  dasherizedTitle: computed("title", function () {
+    return (this.title || "").replace(".", "-").dasherize();
+  }),
+
   label: computed("rowLabel", "item.label", "title", "rowName", function () {
     const label =
       this.rowLabel ||
@@ -127,5 +131,11 @@ export default Component.extend(UtilsMixin, {
   click() {
     this.selectKit.select(this.rowValue, this.item);
     return false;
+  },
+
+  mouseDown(event) {
+    if (this.selectKit.options.preventHeaderFocus) {
+      event.preventDefault();
+    }
   },
 });

@@ -281,6 +281,7 @@ describe TopicUser do
           another_user = Fabricate(:user)
           group.add(another_user)
 
+          Jobs.run_immediately!
           topic.invite_group(target_user, group)
 
           expect(TopicUser.get(topic, another_user).notification_level)
@@ -433,7 +434,7 @@ describe TopicUser do
     p2 = Fabricate(:post, user: p1.user, topic: p1.topic, post_number: 2)
     p1.topic.notifier.watch_topic!(p1.user_id)
 
-    DB.exec("UPDATE topic_users set highest_seen_post_number=1, last_read_post_number=0
+    DB.exec("UPDATE topic_users set last_read_post_number=0
                        WHERE topic_id = :topic_id AND user_id = :user_id", topic_id: p1.topic_id, user_id: p1.user_id)
 
     [p1, p2].each do |p|
@@ -444,7 +445,6 @@ describe TopicUser do
 
     tu = TopicUser.find_by(user_id: p1.user_id, topic_id: p1.topic_id)
     expect(tu.last_read_post_number).to eq(p2.post_number)
-    expect(tu.highest_seen_post_number).to eq(2)
 
   end
 
@@ -454,6 +454,7 @@ describe TopicUser do
       user1 = Fabricate(:user)
 
       Jobs.run_immediately!
+      SiteSetting.disable_mailing_list_mode = false
       SiteSetting.default_email_mailing_list_mode = true
       SiteSetting.default_email_mailing_list_mode_frequency = 1
 
@@ -477,4 +478,32 @@ describe TopicUser do
     end
   end
 
+  it "correctly triggers an event on first visit" do
+    begin
+      tracked_user = Fabricate(:user)
+      post = create_post
+
+      called = 0
+      visits = []
+      user_first_visit = -> (topic_id, user_id) do
+        visits << "#{topic_id}-#{user_id}"
+        called += 1
+      end
+
+      DiscourseEvent.on(:topic_first_visited_by_user, &user_first_visit)
+
+      expect(called).to eq(0)
+
+      TopicUser.change(tracked_user, post.topic.id, total_msecs_viewed: 1)
+
+      expect(visits).to eq(["#{post.topic.id}-#{tracked_user.id}"])
+      expect(called).to eq(1)
+
+      TopicUser.change(tracked_user, post.topic.id, total_msecs_viewed: 2)
+
+      expect(called).to eq(1)
+    ensure
+      DiscourseEvent.off(:topic_first_visited_by_user, &user_first_visit)
+    end
+  end
 end

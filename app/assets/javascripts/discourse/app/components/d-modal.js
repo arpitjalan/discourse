@@ -1,3 +1,4 @@
+import { computed } from "@ember/object";
 import Component from "@ember/component";
 import I18n from "I18n";
 import afterTransition from "discourse/lib/after-transition";
@@ -12,10 +13,18 @@ export default Component.extend({
     "modalStyle",
     "hasPanels",
   ],
-  attributeBindings: ["data-keyboard", "aria-modal"],
+  attributeBindings: [
+    "data-keyboard",
+    "aria-modal",
+    "role",
+    "ariaLabelledby:aria-labelledby",
+  ],
+  submitOnEnter: true,
   dismissable: true,
   title: null,
   subtitle: null,
+  role: "dialog",
+  headerClass: null,
 
   init() {
     this._super(...arguments);
@@ -33,13 +42,17 @@ export default Component.extend({
   // Inform screenreaders of the modal
   "aria-modal": "true",
 
+  ariaLabelledby: computed("title", function () {
+    return this.title ? "discourse-modal-title" : null;
+  }),
+
   @on("didInsertElement")
   setUp() {
     $("html").on("keyup.discourse-modal", (e) => {
-      //only respond to events when the modal is visible
+      // only respond to events when the modal is visible
       if (!this.element.classList.contains("hidden")) {
         if (e.which === 27 && this.dismissable) {
-          next(() => $(".modal-header button.modal-close").click());
+          next(() => this.attrs.closeModal("initiatedByESC"));
         }
 
         if (e.which === 13 && this.triggerClickOnEnter(e)) {
@@ -58,6 +71,10 @@ export default Component.extend({
   },
 
   triggerClickOnEnter(e) {
+    if (!this.submitOnEnter) {
+      return false;
+    }
+
     // skip when in a form or a textarea element
     if (
       e.target.closest("form") ||
@@ -112,19 +129,34 @@ export default Component.extend({
       this.set("subtitle", null);
     }
 
+    if ("submitOnEnter" in data) {
+      this.set("submitOnEnter", data.submitOnEnter);
+    }
+
     if ("dismissable" in data) {
       this.set("dismissable", data.dismissable);
     } else {
       this.set("dismissable", true);
     }
 
-    if (this.element) {
-      const autofocusInputs = this.element.querySelectorAll(
+    this.set("headerClass", data.headerClass || null);
+
+    if (this.element && data.autoFocus) {
+      let focusTarget = this.element.querySelector(
         ".modal-body input[autofocus]"
       );
 
-      if (autofocusInputs.length) {
-        afterTransition(() => autofocusInputs[0].focus());
+      if (!focusTarget && !this.site.mobileView) {
+        focusTarget = this.element.querySelector(
+          ".modal-body input, .modal-body button, .modal-footer input, .modal-footer button"
+        );
+
+        if (!focusTarget) {
+          focusTarget = this.element.querySelector(".modal-header button");
+        }
+      }
+      if (focusTarget) {
+        afterTransition(() => focusTarget.focus());
       }
     }
   },

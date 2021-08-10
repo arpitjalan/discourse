@@ -60,13 +60,13 @@ describe 'tags' do
     post 'Creates a tag group' do
       tags 'Tags'
       consumes 'application/json'
-      expected_request_schema = SpecSchemas::SpecLoader.new('tag_group_create_request').load
+      expected_request_schema = load_spec_schema('tag_group_create_request')
 
       parameter name: :params, in: :body, schema: expected_request_schema
 
       produces 'application/json'
       response '200', 'tag group created' do
-        expected_response_schema = SpecSchemas::SpecLoader.new('tag_group_create_response').load
+        expected_response_schema = load_spec_schema('tag_group_create_response')
 
         let(:params) { { 'name' => 'todo' } }
 
@@ -277,8 +277,7 @@ describe 'tags' do
                     archetype: { type: :string },
                     unseen: { type: :boolean },
                     last_read_post_number: { type: :integer },
-                    unread: { type: :integer },
-                    new_posts: { type: :integer },
+                    unread_posts: { type: :integer },
                     pinned: { type: :boolean },
                     unpinned: { type: :string, nullable: true },
                     visible: { type: :boolean },

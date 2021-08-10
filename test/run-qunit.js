@@ -5,7 +5,7 @@
 // Requires chrome-launcher and chrome-remote-interface from npm
 // An up-to-date version of chrome is also required
 
-var args = process.argv.slice(2);
+let args = process.argv.slice(2);
 
 if (args.length < 1 || args.length > 3) {
   console.log("Usage: node run-qunit.js <URL> <timeout> <result_file>");
@@ -75,10 +75,25 @@ async function runAllTests() {
     }
   }
 
-  const { Inspector, Page, Runtime } = protocol;
-
+  const { Inspector, Page, Runtime, Log } = protocol;
   // eslint-disable-next-line
-  await Promise.all([Inspector.enable(), Page.enable(), Runtime.enable()]);
+  await Promise.all([
+    Inspector.enable(),
+    Page.enable(),
+    Runtime.enable(),
+    Log.enable(),
+  ]);
+
+  // Documentation https://chromedevtools.github.io/devtools-protocol/tot/Log/#type-LogEntry
+  Log.entryAdded(({ entry }) => {
+    let message = `${new Date(entry.timestamp).toISOString()} - (type: ${
+      entry.source
+    }/${entry.level}) message: ${entry.text}`;
+    if (entry.url) {
+      message += `, url: ${entry.url}`;
+    }
+    console.log(message);
+  });
 
   Inspector.targetCrashed((entry) => {
     console.log("Chrome target crashed:");
@@ -106,8 +121,34 @@ async function runAllTests() {
     }
   });
 
-  console.log("navigate to " + args[0]);
-  Page.navigate({ url: args[0] });
+  let url = args[0] + "&qunit_disable_auto_start=1";
+
+  const apiKey = process.env.ADMIN_API_KEY;
+  const apiUsername = process.env.ADMIN_API_USERNAME;
+  if (apiKey && apiUsername) {
+    const { Fetch } = protocol;
+    await Fetch.enable();
+    const urlObj = new URL(url);
+    Fetch.requestPaused((data) => {
+      const requestURL = new URL(data.request.url);
+      if (requestURL.hostname != urlObj.hostname) {
+        Fetch.continueRequest({
+          requestId: data.requestId,
+        });
+        return;
+      }
+      Fetch.continueRequest({
+        requestId: data.requestId,
+        headers: [
+          { name: "Api-Key", value: apiKey },
+          { name: "Api-Username", value: apiUsername },
+        ],
+      });
+    });
+  }
+
+  console.log("navigate to ", url);
+  Page.navigate({ url });
 
   Page.loadEventFired(async () => {
     let qff = process.env.QUNIT_FAIL_FAST;
@@ -128,9 +169,9 @@ async function runAllTests() {
     }
 
     const timeout = parseInt(args[1] || 300000, 10);
-    var start = Date.now();
+    let start = Date.now();
 
-    var interval;
+    let interval;
 
     let runTests = async function () {
       if (Date.now() > start + timeout) {
@@ -167,7 +208,7 @@ runAllTests().catch((e) => {
 });
 
 // The following functions are converted to strings
-// And then sent to chrome to be evalaluated
+// And then sent to chrome to be evaluated
 function logQUnit() {
   let testErrors = [];
   let assertionErrors = [];
@@ -218,7 +259,7 @@ function logQUnit() {
       return;
     }
 
-    var msg = "\n    Assertion Failed:";
+    let msg = "\n    Assertion Failed:";
     if (context.message) {
       msg += " " + context.message;
     }
@@ -256,7 +297,7 @@ function logQUnit() {
       console.log("\n");
     }
 
-    var stats = [
+    let stats = [
       "Time: " + context.runtime + "ms",
       "Total: " + context.total,
       "Passed: " + context.passed,
@@ -281,6 +322,7 @@ function logQUnit() {
 
     window.qunitDone = context;
   });
+  QUnit.start();
 }
 let qunit_script = logQUnit.toString();
 

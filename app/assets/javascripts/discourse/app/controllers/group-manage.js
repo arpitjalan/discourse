@@ -1,10 +1,7 @@
 import Controller from "@ember/controller";
 import discourseComputed from "discourse-common/utils/decorators";
-import { inject as service } from "@ember/service";
 
 export default Controller.extend({
-  router: service(),
-
   @discourseComputed("model.automatic")
   tabs(automatic) {
     const defaultTabs = [
@@ -32,7 +29,7 @@ export default Controller.extend({
     });
 
     if (!automatic) {
-      if (this.siteSettings.enable_imap && this.siteSettings.enable_smtp) {
+      if (this.siteSettings.enable_smtp) {
         defaultTabs.splice(2, 0, {
           route: "group.manage.email",
           title: "groups.manage.email.title",

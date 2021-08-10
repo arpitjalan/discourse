@@ -2,11 +2,15 @@ import componentTest, {
   setupRenderingTest,
 } from "discourse/tests/helpers/component-test";
 import {
+  count,
   discourseModule,
-  queryAll,
+  exists,
+  query,
 } from "discourse/tests/helpers/qunit-helpers";
 import EmberObject from "@ember/object";
+import hbs from "htmlbars-inline-precompile";
 import pretender from "discourse/tests/helpers/create-pretender";
+import { settled } from "@ember/test-helpers";
 
 discourseModule(
   "Integration | Component | Widget | default-notification-item",
@@ -14,7 +18,7 @@ discourseModule(
     setupRenderingTest(hooks);
 
     componentTest("sets notification as read on middle click", {
-      template: '{{mount-widget widget="default-notification-item" args=args}}',
+      template: hbs`{{mount-widget widget="default-notification-item" args=args}}`,
       beforeEach() {
         this.set(
           "args",
@@ -57,17 +61,18 @@ discourseModule(
           ];
         });
 
-        assert.equal(queryAll("li.read").length, 0);
+        assert.ok(!exists("li.read"));
 
-        await $(document).trigger(
+        $(document).trigger(
           $.Event("mouseup", {
-            target: queryAll("li")[0],
+            target: query("li"),
             button: 1,
             which: 2,
           })
         );
+        await settled();
 
-        assert.equal(queryAll("li.read").length, 1);
+        assert.equal(count("li.read"), 1);
         assert.equal(requests, 1);
       },
     });

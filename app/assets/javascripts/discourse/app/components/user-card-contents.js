@@ -16,13 +16,16 @@ import { prioritizeNameInUx } from "discourse/lib/settings";
 export default Component.extend(CardContentsBase, CanCheckEmails, CleansUp, {
   elementId: "user-card",
   classNames: "user-card",
-  triggeringLinkClass: "mention",
+  avatarSelector: "[data-user-card]",
+  avatarDataAttrKey: "userCard",
+  mentionSelector: "a.mention",
   classNameBindings: [
     "visible:show",
     "showBadges",
-    "user.card_background::no-bg",
+    "user.card_background_upload_url::no-bg",
     "isFixed:fixed",
     "usernameClass",
+    "primaryGroup",
   ],
   allowBackgrounds: setting("allow_profile_backgrounds"),
   showBadges: setting("enable_badges"),
@@ -155,6 +158,11 @@ export default Component.extend(CardContentsBase, CanCheckEmails, CleansUp, {
     const url = this.get("user.card_background_upload_url");
     const bg = isEmpty(url) ? "" : `url(${getURLWithCDN(url)})`;
     thisElem.style.backgroundImage = bg;
+  },
+
+  @discourseComputed("user.primary_group_name")
+  primaryGroup(primaryGroup) {
+    return `group-${primaryGroup}`;
   },
 
   _showCallback(username, $target) {

@@ -24,6 +24,15 @@ class TopicCreator
     # this allows us to add errors
     valid = topic.valid?
 
+    category = find_category
+    if category.present? && guardian.can_tag?(topic)
+      tags = @opts[:tags].present? ? Tag.where(name: @opts[:tags]) : (@opts[:tags] || [])
+
+      # both add to topic.errors
+      DiscourseTagging.validate_min_required_tags_for_category(guardian, topic, category, tags)
+      DiscourseTagging.validate_required_tags_from_group(guardian, topic, category, tags)
+    end
+
     DiscourseEvent.trigger(:after_validate_topic, topic, self)
     valid &&= topic.errors.empty?
 
@@ -123,15 +132,10 @@ class TopicCreator
     end
 
     topic_params[:category_id] = category.id if category.present?
-
     topic_params[:created_at] = convert_time(@opts[:created_at]) if @opts[:created_at].present?
-
     topic_params[:pinned_at] = convert_time(@opts[:pinned_at]) if @opts[:pinned_at].present?
     topic_params[:pinned_globally] = @opts[:pinned_globally] if @opts[:pinned_globally].present?
-
-    if SiteSetting.topic_featured_link_enabled && @opts[:featured_link].present? && @guardian.can_edit_featured_link?(topic_params[:category_id])
-      topic_params[:featured_link] = @opts[:featured_link]
-    end
+    topic_params[:featured_link] = @opts[:featured_link]
 
     topic_params
   end
@@ -160,21 +164,22 @@ class TopicCreator
   end
 
   def setup_tags(topic)
-    if @opts[:tags].blank?
-      unless @guardian.is_staff? || !guardian.can_tag?(topic)
-        category = find_category
-
-        if !DiscourseTagging.validate_min_required_tags_for_category(@guardian, topic, category) ||
-            !DiscourseTagging.validate_required_tags_from_group(@guardian, topic, category)
-          rollback_from_errors!(topic)
-        end
-      end
-    else
+    if @opts[:tags].present?
       valid_tags = DiscourseTagging.tag_topic_by_names(topic, @guardian, @opts[:tags])
       unless valid_tags
         topic.errors.add(:base, :unable_to_tag)
         rollback_from_errors!(topic)
       end
+    end
+
+    watched_words = WordWatcher.words_for_action(:tag)
+    if watched_words.present?
+      word_watcher = WordWatcher.new("#{@opts[:title]} #{@opts[:raw]}")
+      word_watcher_tags = topic.tags.map(&:name)
+      watched_words.each do |word, tags|
+        word_watcher_tags += tags.split(",") if word_watcher.word_matches?(word)
+      end
+      DiscourseTagging.tag_topic_by_names(topic, Discourse.system_user.guardian, word_watcher_tags)
     end
   end
 
@@ -193,7 +198,7 @@ class TopicCreator
     end
 
     if @opts[:target_emails].present? && !@guardian.can_send_private_messages_to_email? then
-      rollback_with!(topic, :reply_by_email_disabled)
+      rollback_with!(topic, :send_to_email_disabled)
     end
 
     add_users(topic, @opts[:target_usernames])

@@ -7,23 +7,27 @@ class TagsController < ::ApplicationController
   before_action :ensure_tags_enabled
   before_action :ensure_visible, only: [:show, :info]
 
+  def self.show_methods
+    Discourse.anonymous_filters.map { |f| :"show_#{f}" }
+  end
+
   requires_login except: [
     :index,
     :show,
     :tag_feed,
     :search,
     :info,
-    Discourse.anonymous_filters.map { |f| :"show_#{f}" }
-  ].flatten
+    *show_methods
+  ]
 
-  skip_before_action :check_xhr, only: [:tag_feed, :show, :index]
+  skip_before_action :check_xhr, only: [:tag_feed, :show, :index, *show_methods]
 
   before_action :set_category, except: [:index, :update, :destroy,
     :tag_feed, :search, :notifications, :update_notifications, :personal_messages, :info]
 
   before_action :fetch_tag, only: [:info, :create_synonyms, :destroy_synonym]
 
-  after_action :add_noindex_header
+  after_action :add_noindex_header, except: [:index, :show]
 
   def index
     @description_meta = I18n.t("tags.title")
@@ -85,7 +89,11 @@ class TagsController < ::ApplicationController
       @list = nil
 
       if filter == :top
-        @list = TopicQuery.new(current_user, list_opts).public_send("list_top_for", SiteSetting.top_page_default_timeframe.to_sym)
+        period = params[:period] || SiteSetting.top_page_default_timeframe.to_sym
+        TopTopic.validate_period(period)
+
+        @list = TopicQuery.new(current_user, list_opts).public_send("list_top_for", period)
+        @list.for_period = period
       else
         @list = TopicQuery.new(current_user, list_opts).public_send("list_#{filter}")
       end
@@ -452,7 +460,7 @@ class TagsController < ::ApplicationController
       search: params[:search],
       q: params[:q]
     )
-    options[:no_subcategories] = true if params[:no_subcategories] == 'true'
+    options[:no_subcategories] = true if params[:no_subcategories] == true || params[:no_subcategories] == 'true'
     options[:per_page] = params[:per_page].to_i.clamp(1, 30) if params[:per_page].present?
 
     if params[:tag_id] == 'none'

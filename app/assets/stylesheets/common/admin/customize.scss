@@ -1,39 +1,4 @@
-// Customise area
-
-// email templates
-
-.content-editor {
-  min-height: 500px;
-  float: left;
-  width: 54.054%;
-  margin-left: 1.8018%;
-  p.description {
-    color: var(--primary);
-  }
-  .controls {
-    margin-top: 10px;
-  }
-  textarea.plain {
-    width: 98%;
-    height: 200px;
-  }
-  .d-editor-input {
-    width: 98%;
-    height: 200px;
-  }
-  .ace-wrapper {
-    position: relative;
-    height: 600px;
-    width: 100%;
-  }
-  .ace_editor {
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
-    bottom: 0;
-  }
-}
+// Customize area
 
 .email-template {
   input {
@@ -84,11 +49,17 @@
     }
   }
 
-  .field-error {
+  .field-error,
+  .field-warning {
     margin-top: 10px;
     margin-bottom: 10px;
-    background-color: var(--quaternary-low);
-    padding: 5px;
+    background-color: var(--danger-low-mid);
+    padding: 10px;
+    white-space: pre-wrap;
+  }
+
+  .field-warning {
+    background-color: var(--highlight-low);
   }
 
   .admin-container {
@@ -324,6 +295,37 @@
         width: 100%;
       }
     }
+
+    .themes-list-filter {
+      display: flex;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      background: var(--secondary);
+      z-index: z("base");
+      height: 3em;
+
+      .d-icon {
+        position: absolute;
+        padding-left: 0.5em;
+      }
+
+      .filter-input {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        border: 0;
+        padding-left: 2em;
+
+        &:focus {
+          outline: 0;
+
+          ~ .d-icon {
+            color: var(--tertiary-hover);
+          }
+        }
+      }
+    }
   }
 
   .theme.settings {
@@ -374,7 +376,7 @@
     left: 0;
     right: 0;
     z-index: z("fullscreen");
-    background-color: white;
+    background-color: var(--secondary);
     width: 100%;
     padding: 0;
     margin: 0;
@@ -454,7 +456,8 @@
 
     .ace-wrapper {
       position: relative;
-      height: 600px;
+      height: calc(100vh - 450px);
+      min-height: 200px;
       width: 100%;
     }
 
@@ -466,8 +469,7 @@
         width: 100%;
       }
       .admin-footer {
-        position: absolute;
-        bottom: 10px;
+        margin-top: 10px;
       }
       .ace-wrapper {
         height: calc(100vh - 200px);
@@ -625,18 +627,30 @@
   }
   label input {
     width: auto;
-    margin: 3px 0;
   }
-
-  .public-key {
-    margin-top: 10px;
-    textarea {
-      cursor: auto;
-      height: 150px;
-    }
+}
+.public-key {
+  margin-top: 1em;
+  textarea {
+    cursor: auto;
+    min-height: 220px;
+    margin-bottom: 0;
+  }
+  button {
+    position: absolute;
+    top: 0;
+    right: 0;
   }
 }
 
+.public-key-text-wrapper {
+  position: relative;
+}
+
+.public-key-note {
+  margin-top: 1em;
+  color: var(--primary-medium);
+}
 // Permalinks
 .permalinks {
   .url,
@@ -870,7 +884,8 @@
   .ace-wrapper {
     position: relative;
     width: 100%;
-    height: 400px;
+    height: calc(100vh - 480px);
+    min-height: 200px;
     .ace_editor {
       position: absolute;
       left: 0;

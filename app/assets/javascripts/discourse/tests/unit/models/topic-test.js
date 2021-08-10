@@ -109,7 +109,7 @@ discourseModule("Unit | Model | topic", function () {
     assert.equal(topic.get("category"), category);
   });
 
-  test("recover", function (assert) {
+  test("recover", async function (assert) {
     const user = User.create({ username: "eviltrout" });
     const topic = Topic.create({
       id: 1234,
@@ -117,7 +117,8 @@ discourseModule("Unit | Model | topic", function () {
       deleted_by: user,
     });
 
-    topic.recover();
+    await topic.recover();
+
     assert.blank(topic.get("deleted_at"), "it clears deleted_at");
     assert.blank(topic.get("deleted_by"), "it clears deleted_by");
   });
@@ -129,7 +130,7 @@ discourseModule("Unit | Model | topic", function () {
 
     assert.equal(
       topic.get("fancyTitle"),
-      `<img width=\"20\" height=\"20\" src='/images/emoji/emoji_one/smile.png?v=${v}' title='smile' alt='smile' class='emoji'> with all <img width=\"20\" height=\"20\" src='/images/emoji/emoji_one/slight_smile.png?v=${v}' title='slight_smile' alt='slight_smile' class='emoji'> the emojis <img width=\"20\" height=\"20\" src='/images/emoji/emoji_one/pear.png?v=${v}' title='pear' alt='pear' class='emoji'><img width=\"20\" height=\"20\" src='/images/emoji/emoji_one/peach.png?v=${v}' title='peach' alt='peach' class='emoji'>`,
+      `<img width=\"20\" height=\"20\" src='/images/emoji/google_classic/smile.png?v=${v}' title='smile' alt='smile' class='emoji'> with all <img width=\"20\" height=\"20\" src='/images/emoji/google_classic/slight_smile.png?v=${v}' title='slight_smile' alt='slight_smile' class='emoji'> the emojis <img width=\"20\" height=\"20\" src='/images/emoji/google_classic/pear.png?v=${v}' title='pear' alt='pear' class='emoji'><img width=\"20\" height=\"20\" src='/images/emoji/google_classic/peach.png?v=${v}' title='peach' alt='peach' class='emoji'>`,
       "supports emojis"
     );
   });
@@ -159,8 +160,22 @@ discourseModule("Unit | Model | topic", function () {
 
     assert.equal(
       topic.get("escapedExcerpt"),
-      `This is a test topic <img width=\"20\" height=\"20\" src='/images/emoji/emoji_one/smile.png?v=${v}' title='smile' alt='smile' class='emoji'>`,
+      `This is a test topic <img width=\"20\" height=\"20\" src='/images/emoji/google_classic/smile.png?v=${v}' title='smile' alt='smile' class='emoji'>`,
       "supports emojis"
     );
+  });
+
+  test("visible & invisible", function (assert) {
+    const topic = Topic.create();
+    assert.equal(topic.visible, undefined);
+    assert.equal(topic.invisible, undefined);
+
+    const visibleTopic = Topic.create({ visible: true });
+    assert.equal(visibleTopic.visible, true);
+    assert.equal(visibleTopic.invisible, false);
+
+    const invisibleTopic = Topic.create({ visible: false });
+    assert.equal(invisibleTopic.visible, false);
+    assert.equal(invisibleTopic.invisible, true);
   });
 });

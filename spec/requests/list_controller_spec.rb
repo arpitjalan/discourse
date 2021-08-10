@@ -5,7 +5,7 @@ require 'rails_helper'
 RSpec.describe ListController do
   fab!(:user) { Fabricate(:user) }
   fab!(:topic) { Fabricate(:topic, user: user) }
-  fab!(:group) { Fabricate(:group) }
+  fab!(:group) { Fabricate(:group, name: "AwesomeGroup") }
   fab!(:admin) { Fabricate(:admin) }
 
   before do
@@ -247,7 +247,7 @@ RSpec.describe ListController do
 
       it 'should return the right response' do
         topic = Fabricate(:private_message_topic, allowed_groups: [group])
-        get "/topics/private-messages-group/#{user.username}/#{group.name}.json"
+        get "/topics/private-messages-group/#{user.username}/awesomegroup.json"
 
         expect(response.status).to eq(200)
 
@@ -410,12 +410,34 @@ RSpec.describe ListController do
       expect(response.media_type).to eq('application/rss+xml')
     end
 
+    it 'errors for invalid periods on top RSS' do
+      get "/top.rss?period=decadely"
+      expect(response.status).to eq(400)
+    end
+
     TopTopic.periods.each do |period|
       it "renders #{period} top RSS" do
-        get "/top/#{period}.rss"
+        get "/top.rss?period=#{period}"
         expect(response.status).to eq(200)
         expect(response.media_type).to eq('application/rss+xml')
       end
+    end
+  end
+
+  describe 'Top' do
+    it 'renders top' do
+      get "/top"
+      expect(response.status).to eq(200)
+    end
+
+    it 'renders top with a period' do
+      get "/top?period=weekly"
+      expect(response.status).to eq(200)
+    end
+
+    it 'errors for invalid periods on top' do
+      get "/top?period=decadely"
+      expect(response.status).to eq(400)
     end
   end
 
@@ -703,6 +725,58 @@ RSpec.describe ListController do
     end
   end
 
+  describe "#private_messages_warnings" do
+    let(:target_user) { Fabricate(:user) }
+    let(:admin) { Fabricate(:admin) }
+    let(:moderator1) { Fabricate(:moderator) }
+    let(:moderator2) { Fabricate(:moderator) }
+
+    let(:create_args) do
+      { title: 'you need a warning buddy!',
+        raw: "you did something bad and I'm telling you about it!",
+        is_warning: true,
+        target_usernames: target_user.username,
+        archetype: Archetype.private_message }
+    end
+
+    let(:warning_post) do
+      creator = PostCreator.new(moderator1, create_args)
+      creator.create
+    end
+    let(:warning_topic) { warning_post.topic }
+
+    before do
+      warning_topic
+    end
+
+    it "returns 403 error for unrelated users" do
+      sign_in(Fabricate(:user))
+      get "/topics/private-messages-warnings/#{target_user.username}.json"
+      expect(response.status).to eq(403)
+    end
+
+    it "shows the warning to moderators and admins" do
+      [moderator1, moderator2, admin].each do |viewer|
+        sign_in(viewer)
+        get "/topics/private-messages-warnings/#{target_user.username}.json"
+
+        expect(response.status).to eq(200)
+        json = response.parsed_body
+        expect(json["topic_list"]["topics"].size).to eq(1)
+        expect(json["topic_list"]["topics"][0]["id"]).to eq(warning_topic.id)
+      end
+    end
+
+    it "does not show the warning as applying to the authoring moderator" do
+      sign_in(admin)
+      get "/topics/private-messages-warnings/#{moderator1.username}.json"
+
+      expect(response.status).to eq(200)
+      json = response.parsed_body
+      expect(json["topic_list"]["topics"].size).to eq(0)
+    end
+  end
+
   describe 'read' do
     it 'raises an error when not logged in' do
       get "/read"
@@ -759,6 +833,37 @@ RSpec.describe ListController do
       get "/c/hello/world/bye/#{subsubcategory.id}"
       expect(response.status).to eq(301)
       expect(response).to redirect_to("/c/#{category.slug}/#{subcategory.slug}/#{subsubcategory.slug}/#{subsubcategory.id}")
+
+      get "/c/#{category.slug}/#{subcategory.slug}/#{subsubcategory.slug}/#{subsubcategory.id}"
+      expect(response.status).to eq(200)
+    end
+
+    it "redirects to URL with correct case slug" do
+      category.update!(slug: "hello")
+
+      get "/c/Hello/#{category.id}"
+      expect(response).to redirect_to("/c/hello/#{category.id}")
+
+      get "/c/hello/#{category.id}"
+      expect(response.status).to eq(200)
+    end
+
+    context "does not create a redirect loop" do
+      it "with encoded slugs" do
+        category = Fabricate(:category)
+        category.update_columns(slug: CGI.escape("systèmes"))
+
+        get "/c/syst%C3%A8mes/#{category.id}"
+        expect(response.status).to eq(200)
+      end
+
+      it "with lowercase encoded slugs" do
+        category = Fabricate(:category)
+        category.update_columns(slug: CGI.escape("systèmes").downcase)
+
+        get "/c/syst%C3%A8mes/#{category.id}"
+        expect(response.status).to eq(200)
+      end
     end
 
     context "with subfolder" do
@@ -777,6 +882,39 @@ RSpec.describe ListController do
         expect(response.status).to eq(301)
         expect(response).to redirect_to("/forum/c/#{category.slug}/#{subcategory.slug}/#{subsubcategory.slug}/#{subsubcategory.id}")
       end
+    end
+  end
+
+  describe "shared drafts" do
+    fab!(:category1) { Fabricate(:category) }
+    fab!(:category2) { Fabricate(:category) }
+
+    fab!(:topic1) { Fabricate(:topic, category: category1) }
+    fab!(:topic2) { Fabricate(:topic, category: category2) }
+
+    fab!(:shared_draft_topic) { Fabricate(:topic, category: category1) }
+    fab!(:shared_draft) { Fabricate(:shared_draft, topic: shared_draft_topic, category: category2) }
+
+    it "are not displayed if they are disabled" do
+      SiteSetting.shared_drafts_category = ""
+      sign_in(admin)
+
+      get "/c/#{category1.slug}/#{category1.id}.json"
+      expect(response.parsed_body['topic_list']['shared_drafts']).to eq(nil)
+      expect(response.parsed_body['topic_list']['topics'].map { |t| t['id'] }).to contain_exactly(topic1.id, shared_draft_topic.id)
+    end
+
+    it "are displayed in both shared drafts category and target category" do
+      SiteSetting.shared_drafts_category = category1.id
+      sign_in(admin)
+
+      get "/c/#{category1.slug}/#{category1.id}.json"
+      expect(response.parsed_body['topic_list']['shared_drafts']).to be_nil
+      expect(response.parsed_body['topic_list']['topics'].map { |t| t['id'] }).to contain_exactly(topic1.id, shared_draft_topic.id)
+
+      get "/c/#{category2.slug}/#{category2.id}.json"
+      expect(response.parsed_body['topic_list']['shared_drafts'].map { |t| t['id'] }).to contain_exactly(shared_draft_topic.id)
+      expect(response.parsed_body['topic_list']['topics'].map { |t| t['id'] }).to contain_exactly(topic2.id)
     end
   end
 end

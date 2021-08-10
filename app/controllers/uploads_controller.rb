@@ -8,18 +8,28 @@ class UploadsController < ApplicationController
   skip_before_action :preload_json, :check_xhr, :redirect_to_login_if_required, only: [:show, :show_short, :show_secure]
   protect_from_forgery except: :show
 
-  before_action :is_asset_path, only: [:show, :show_short, :show_secure]
+  before_action :is_asset_path, :apply_cdn_headers, only: [:show, :show_short, :show_secure]
+  before_action :external_store_check, only: [:show_secure, :generate_presigned_put, :complete_external_upload]
 
   SECURE_REDIRECT_GRACE_SECONDS = 5
+  PRESIGNED_PUT_RATE_LIMIT_PER_MINUTE = 5
+
+  def external_store_check
+    return render_404 if !Discourse.store.external?
+  end
 
   def create
     # capture current user for block later on
     me = current_user
 
+    params.permit(:type, :upload_type)
+    if params[:type].blank? && params[:upload_type].blank?
+      raise Discourse::InvalidParameters
+    end
     # 50 characters ought to be enough for the upload type
-    type = params.require(:type).parameterize(separator: "_")[0..50]
+    type = (params[:upload_type].presence || params[:type].presence).parameterize(separator: "_")[0..50]
 
-    if type == "avatar" && !me.admin? && (SiteSetting.sso_overrides_avatar || !SiteSetting.allow_uploaded_avatars)
+    if type == "avatar" && !me.admin? && (SiteSetting.discourse_connect_overrides_avatar || !SiteSetting.allow_uploaded_avatars)
       return render json: failed_json, status: 422
     end
 
@@ -121,7 +131,6 @@ class UploadsController < ApplicationController
   def show_secure
     # do not serve uploads requested via XHR to prevent XSS
     return xhr_not_allowed if request.xhr?
-    return render_404 if !Discourse.store.external?
 
     path_with_ext = "#{params[:path]}.#{params[:extension]}"
 
@@ -181,6 +190,84 @@ class UploadsController < ApplicationController
       height: upload.height,
       human_filesize: upload.human_filesize
     }
+  end
+
+  def generate_presigned_put
+    return render_404 if !SiteSetting.enable_direct_s3_uploads
+
+    RateLimiter.new(
+      current_user, "generate-presigned-put-upload-stub", PRESIGNED_PUT_RATE_LIMIT_PER_MINUTE, 1.minute
+    ).performed!
+
+    file_name = params.require(:file_name)
+    type = params.require(:type)
+
+    # don't want people posting arbitrary S3 metadata so we just take the
+    # one we need. all of these will be converted to x-amz-meta- metadata
+    # fields in S3 so it's best to use dashes in the names for consistency
+    #
+    # this metadata is baked into the presigned url and is not altered when
+    # sending the PUT from the clientside to the presigned url
+    metadata = if params[:metadata].present?
+      meta = {}
+      if params[:metadata]["sha1-checksum"].present?
+        meta["sha1-checksum"] = params[:metadata]["sha1-checksum"]
+      end
+      meta
+    end
+
+    url = Discourse.store.signed_url_for_temporary_upload(
+      file_name, metadata: metadata
+    )
+    key = Discourse.store.path_from_url(url)
+
+    upload_stub = ExternalUploadStub.create!(
+      key: key,
+      created_by: current_user,
+      original_filename: file_name,
+      upload_type: type
+    )
+
+    render json: { url: url, key: key, unique_identifier: upload_stub.unique_identifier }
+  end
+
+  def complete_external_upload
+    return render_404 if !SiteSetting.enable_direct_s3_uploads
+
+    unique_identifier = params.require(:unique_identifier)
+    external_upload_stub = ExternalUploadStub.find_by(
+      unique_identifier: unique_identifier, created_by: current_user
+    )
+    return render_404 if external_upload_stub.blank?
+
+    raise Discourse::InvalidAccess if external_upload_stub.created_by_id != current_user.id
+    external_upload_manager = ExternalUploadManager.new(external_upload_stub)
+
+    hijack do
+      begin
+        upload = external_upload_manager.promote_to_upload!
+        if upload.errors.empty?
+          external_upload_manager.destroy!
+          render json: UploadsController.serialize_upload(upload), status: 200
+        else
+          render_json_error(upload.errors.to_hash.values.flatten, status: 422)
+        end
+      rescue ExternalUploadManager::ChecksumMismatchError => err
+        debug_upload_error(err, "upload.checksum_mismatch_failure")
+        render_json_error(I18n.t("upload.failed"), status: 422)
+      rescue ExternalUploadManager::CannotPromoteError => err
+        debug_upload_error(err, "upload.cannot_promote_failure")
+        render_json_error(I18n.t("upload.failed"), status: 422)
+      rescue ExternalUploadManager::DownloadFailedError, Aws::S3::Errors::NotFound => err
+        debug_upload_error(err, "upload.download_failure")
+        render_json_error(I18n.t("upload.failed"), status: 422)
+      rescue => err
+        Discourse.warn_exception(
+          err, message: "Complete external upload failed unexpectedly for user #{current_user.id}"
+        )
+        render_json_error(I18n.t("upload.failed"), status: 422)
+      end
+    end
   end
 
   protected
@@ -270,4 +357,8 @@ class UploadsController < ApplicationController
     send_file(file_path, opts)
   end
 
+  def debug_upload_error(translation_key, err)
+    return if !SiteSetting.enable_upload_debug_mode
+    Discourse.warn_exception(err, message: I18n.t(translation_key))
+  end
 end

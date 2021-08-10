@@ -42,11 +42,17 @@
 
   button.bulk-select {
     padding: 0;
+    line-height: $line-height-large;
   }
 
   td.bulk-select {
-    padding: 10px;
+    padding: 0;
     width: 30px;
+    label {
+      margin: 0px;
+      padding: 12px 10px 16px 10px;
+      cursor: pointer;
+    }
     + .main-link {
       padding-left: 0;
     }
@@ -144,9 +150,15 @@
 // Misc. stuff
 // --------------------------------------------------
 
-#list-area .top-lists h2 {
-  cursor: pointer;
-  margin: 5px 0 10px;
+#list-area .top-lists {
+  h2 {
+    cursor: pointer;
+    margin: 5px 0 10px;
+  }
+
+  .period-chooser .select-kit-body {
+    width: 275px;
+  }
 }
 
 #list-area {
@@ -172,13 +184,13 @@
 
 #bulk-select {
   position: fixed;
-  right: 20px;
-  top: 130px;
+  right: 10px; // match horizontal padding on .wrap
+  padding-top: 12px; // match .topic-list th padding
   background-color: var(--secondary);
   z-index: z("dropdown");
   @supports (position: sticky) {
     @media screen and (min-width: 1250px) {
-      body:not(.search-page) & {
+      body:not(.search-page):not(.user-messages-page) & {
         position: absolute;
         right: -60px;
         top: 0;
@@ -193,16 +205,21 @@ button.dismiss-read {
   margin-left: 10px;
 }
 
-.category-heading {
-  p {
-    line-height: $line-height-large;
-    font-size: $font-up-3;
+.category-breadcrumb {
+  // only target the top-level li, not dropdowns
+  > li {
+    height: 100%;
+  }
+  .select-kit-header {
+    align-self: stretch;
+    height: 100%;
+    margin-bottom: var(--nav-space);
   }
 }
 
 .category-logo.aspect-image {
   float: left;
-  margin: 0.25em 1em 0.5em 0;
+  margin: 0.33em 2em 2em 0;
 }
 
 /* Tablet (portrait) ----------- */

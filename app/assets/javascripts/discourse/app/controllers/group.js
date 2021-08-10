@@ -4,8 +4,6 @@ import I18n from "I18n";
 import bootbox from "bootbox";
 import deprecated from "discourse-common/lib/deprecated";
 import discourseComputed from "discourse-common/utils/decorators";
-import { readOnly } from "@ember/object/computed";
-import { inject as service } from "@ember/service";
 
 const Tab = EmberObject.extend({
   init() {
@@ -23,8 +21,7 @@ export default Controller.extend({
   counts: null,
   showing: "members",
   destroying: null,
-  router: service(),
-  currentPath: readOnly("router.currentRouteName"),
+  showTooltip: false,
 
   @discourseComputed(
     "showMessages",
@@ -104,21 +101,6 @@ export default Controller.extend({
     return (fullName || displayName).capitalize();
   },
 
-  @discourseComputed(
-    "model.name",
-    "model.flair_url",
-    "model.flair_bg_color",
-    "model.flair_color"
-  )
-  avatarFlairAttributes(groupName, flairURL, flairBgColor, flairColor) {
-    return {
-      primary_group_flair_url: flairURL,
-      primary_group_flair_bg_color: flairBgColor,
-      primary_group_flair_color: flairColor,
-      primary_group_name: groupName,
-    };
-  },
-
   @discourseComputed("model.messageable")
   displayGroupMessageButton(messageable) {
     return this.currentUser && messageable;
@@ -135,7 +117,10 @@ export default Controller.extend({
 
   @action
   messageGroup() {
-    this.send("createNewMessageViaParams", this.get("model.name"));
+    this.send("createNewMessageViaParams", {
+      recipients: this.get("model.name"),
+      hasGroups: true,
+    });
   },
 
   @action
@@ -171,6 +156,11 @@ export default Controller.extend({
         }
       }
     );
+  },
+
+  @action
+  toggleDeleteTooltip() {
+    this.toggleProperty("showTooltip");
   },
 
   actions: {

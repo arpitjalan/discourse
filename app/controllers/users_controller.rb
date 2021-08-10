@@ -11,7 +11,7 @@ class UsersController < ApplicationController
     :update_second_factor, :create_second_factor_backup, :select_avatar,
     :notification_level, :revoke_auth_token, :register_second_factor_security_key,
     :create_second_factor_security_key, :feature_topic, :clear_featured_topic,
-    :bookmarks, :invited, :invite_links, :check_sso_email
+    :bookmarks, :invited, :check_sso_email, :check_sso_payload
   ]
 
   skip_before_action :check_xhr, only: [
@@ -34,6 +34,7 @@ class UsersController < ApplicationController
   #  once that happens you can't log in with social
   skip_before_action :verify_authenticity_token, only: [:create]
   skip_before_action :redirect_to_login_if_required, only: [:check_username,
+                                                            :check_email,
                                                             :create,
                                                             :account_created,
                                                             :activate_account,
@@ -111,6 +112,7 @@ class UsersController < ApplicationController
                                               :user_profile,
                                               :card_background_upload,
                                               :primary_group,
+                                              :flair_group,
                                               :primary_email
                                             )
 
@@ -141,16 +143,16 @@ class UsersController < ApplicationController
 
       fields = UserField.all
       fields = fields.where(editable: true) unless current_user.staff?
-      fields.each do |f|
-        field_id = f.id.to_s
+      fields.each do |field|
+        field_id = field.id.to_s
         next unless params[:user_fields].has_key?(field_id)
 
-        val = params[:user_fields][field_id]
-        val = nil if val === "false"
-        val = val[0...UserField.max_length] if val
+        value = clean_custom_field_values(field)
+        value = nil if value === "false"
+        value = value[0...UserField.max_length] if value
 
-        return render_json_error(I18n.t("login.missing_user_field")) if val.blank? && f.required?
-        attributes[:custom_fields]["#{User::USER_FIELD_PREFIX}#{f.id}"] = val
+        return render_json_error(I18n.t("login.missing_user_field")) if value.blank? && field.required?
+        attributes[:custom_fields]["#{User::USER_FIELD_PREFIX}#{field.id}"] = value
       end
     end
 
@@ -179,7 +181,7 @@ class UsersController < ApplicationController
     end
   rescue Discourse::InvalidAccess
     if current_user&.staff?
-      render_json_error(I18n.t('errors.messages.sso_overrides_username'))
+      render_json_error(I18n.t('errors.messages.auth_overrides_username'))
     else
       render json: failed_json, status: 403
     end
@@ -210,7 +212,7 @@ class UsersController < ApplicationController
     user = fetch_user_from_params(include_inactive: true)
 
     unless user == current_user
-      guardian.ensure_can_check_sso_email!(user)
+      guardian.ensure_can_check_sso_details!(user)
       StaffActionLogger.new(current_user).log_check_email(user, context: params[:context])
     end
 
@@ -218,6 +220,22 @@ class UsersController < ApplicationController
     email = I18n.t("user.email.does_not_exist") if email.blank?
 
     render json: { email: email }
+  rescue Discourse::InvalidAccess
+    render json: failed_json, status: 403
+  end
+
+  def check_sso_payload
+    user = fetch_user_from_params(include_inactive: true)
+
+    guardian.ensure_can_check_sso_details!(user)
+    unless user == current_user
+      StaffActionLogger.new(current_user).log_check_email(user, context: params[:context])
+    end
+
+    payload = user&.single_sign_on_record&.last_payload
+    payload = I18n.t("user.email.does_not_exist") if payload.blank?
+
+    render json: { payload: payload }
   rescue Discourse::InvalidAccess
     render json: failed_json, status: 403
   end
@@ -267,17 +285,13 @@ class UsersController < ApplicationController
     user = fetch_user_from_params
     guardian.ensure_can_edit!(user)
 
-    user_email = user.user_emails.find_by(email: params[:email])
-    if user_email&.primary
-      return render json: failed_json, status: 428
-    end
-
     ActiveRecord::Base.transaction do
-      if user_email
-        user_email.destroy
+      if change_requests = user.email_change_requests.where(new_email: params[:email]).presence
+        change_requests.destroy_all
+      elsif user.user_emails.where(email: params[:email], primary: false).destroy_all.present?
         DiscourseEvent.trigger(:user_updated, user)
-      elsif
-        user.email_change_requests.where(new_email: params[:email]).destroy_all
+      else
+        return render json: failed_json, status: 428
       end
 
       if current_user.staff? && current_user != user
@@ -295,7 +309,9 @@ class UsersController < ApplicationController
     guardian.ensure_can_edit!(user)
 
     report = TopicTrackingState.report(user)
-    serializer = ActiveModel::ArraySerializer.new(report, each_serializer: TopicTrackingStateSerializer)
+    serializer = ActiveModel::ArraySerializer.new(
+      report, each_serializer: TopicTrackingStateSerializer, scope: guardian
+    )
 
     render json: MultiJson.dump(serializer)
   end
@@ -386,17 +402,20 @@ class UsersController < ApplicationController
 
   def invited
     if guardian.can_invite_to_forum?
-      offset = params[:offset].to_i || 0
-      filter_by = params[:filter] || "redeemed"
+      filter = params[:filter] || "redeemed"
       inviter = fetch_user_from_params(include_inactive: current_user.staff? || SiteSetting.show_inactive_accounts)
 
-      invites = if guardian.can_see_invite_details?(inviter) && filter_by == "pending"
-        Invite.find_pending_invites_from(inviter, offset)
-      elsif filter_by == "redeemed"
-        Invite.find_redeemed_invites_from(inviter, offset)
+      invites = if filter == "pending" && guardian.can_see_invite_details?(inviter)
+        Invite.includes(:topics, :groups).pending(inviter)
+      elsif filter == "expired"
+        Invite.expired(inviter)
+      elsif filter == "redeemed"
+        Invite.redeemed_users(inviter)
       else
-        []
+        Invite.none
       end
+
+      invites = invites.offset(params[:offset].to_i || 0).limit(SiteSetting.invites_per_page)
 
       show_emails = guardian.can_see_invite_emails?(inviter)
       if params[:search].present? && invites.present?
@@ -405,66 +424,34 @@ class UsersController < ApplicationController
         invites = invites.where(filter_sql, filter: "%#{params[:search].downcase}%")
       end
 
+      pending_count = Invite.pending(inviter).reorder(nil).count.to_i
+      expired_count = Invite.expired(inviter).reorder(nil).count.to_i
+      redeemed_count = Invite.redeemed_users(inviter).reorder(nil).count.to_i
+
       render json: MultiJson.dump(InvitedSerializer.new(
-        OpenStruct.new(invite_list: invites.to_a, show_emails: show_emails, inviter: inviter, type: filter_by),
+        OpenStruct.new(
+          invite_list: invites.to_a,
+          show_emails: show_emails,
+          inviter: inviter,
+          type: filter,
+          counts: {
+            pending: pending_count,
+            expired: expired_count,
+            redeemed: redeemed_count,
+            total: pending_count + expired_count
+          }
+        ),
         scope: guardian,
         root: false
       ))
-    else
-      if current_user&.staff?
-        message = if SiteSetting.enable_sso
-          I18n.t("invite.disabled_errors.sso_enabled")
-        elsif !SiteSetting.enable_local_logins
-          I18n.t("invite.disabled_errors.local_logins_disabled")
-        end
-
-        render_invite_error(message)
-      else
-        render_json_error(I18n.t("invite.disabled_errors.invalid_access"))
+    elsif current_user&.staff?
+      message = if SiteSetting.enable_discourse_connect
+        I18n.t("invite.disabled_errors.discourse_connect_enabled")
       end
-    end
-  end
 
-  def invite_links
-    if guardian.can_invite_to_forum?
-      inviter = fetch_user_from_params(include_inactive: current_user.try(:staff?) || (current_user && SiteSetting.show_inactive_accounts))
-      guardian.ensure_can_see_invite_details!(inviter)
-
-      offset = params[:offset].to_i || 0
-      invites = Invite.find_links_invites_from(inviter, offset)
-
-      render json: MultiJson.dump(invites: serialize_data(invites.to_a, InviteLinkSerializer), can_see_invite_details:  guardian.can_see_invite_details?(inviter))
+      render_invite_error(message)
     else
-      if current_user&.staff?
-        message = if SiteSetting.enable_sso
-          I18n.t("invite.disabled_errors.sso_enabled")
-        elsif !SiteSetting.enable_local_logins
-          I18n.t("invite.disabled_errors.local_logins_disabled")
-        end
-
-        render_invite_error(message)
-      else
-        render_json_error(I18n.t("invite.disabled_errors.invalid_access"))
-      end
-    end
-  end
-
-  def invited_count
-    if guardian.can_invite_to_forum?
-      inviter = fetch_user_from_params(include_inactive: current_user.try(:staff?) || (current_user && SiteSetting.show_inactive_accounts))
-
-      pending_count = Invite.find_pending_invites_count(inviter)
-      redeemed_count = Invite.find_redeemed_invites_count(inviter)
-      links_count = Invite.find_links_invites_count(inviter)
-
-      render json: { counts: { pending: pending_count, redeemed: redeemed_count, links: links_count,
-                               total: (pending_count.to_i + redeemed_count.to_i) } }
-    else
-      if current_user&.staff?
-        render json: { counts: 0 }
-      else
-        render_json_error(I18n.t("invite.disabled_errors.invalid_access"))
-      end
+      render_json_error(I18n.t("invite.disabled_errors.invalid_access"))
     end
   end
 
@@ -536,6 +523,42 @@ class UsersController < ApplicationController
     checker = UsernameCheckerService.new
     email = params[:email] || target_user.try(:email)
     render json: checker.check_username(username, email)
+  end
+
+  def check_email
+    begin
+      RateLimiter.new(nil, "check-email-#{request.remote_ip}", 10, 1.minute).performed!
+    rescue RateLimiter::LimitExceeded
+      return render json: success_json
+    end
+
+    email = Email.downcase((params[:email] || "").strip)
+
+    if email.blank? || SiteSetting.hide_email_address_taken?
+      return render json: success_json
+    end
+
+    if !(email =~ EmailValidator.email_regex)
+      error = User.new.errors.full_message(:email, I18n.t(:'user.email.invalid'))
+      return render json: failed_json.merge(errors: [error])
+    end
+
+    if !EmailValidator.allowed?(email)
+      error = User.new.errors.full_message(:email, I18n.t(:'user.email.not_allowed'))
+      return render json: failed_json.merge(errors: [error])
+    end
+
+    if ScreenedEmail.should_block?(email)
+      error = User.new.errors.full_message(:email, I18n.t(:'user.email.blocked'))
+      return render json: failed_json.merge(errors: [error])
+    end
+
+    if User.where(staged: false).find_by_email(email).present?
+      error = User.new.errors.full_message(:email, I18n.t(:'errors.messages.taken'))
+      return render json: failed_json.merge(errors: [error])
+    end
+
+    render json: success_json
   end
 
   def user_from_params_or_current_user
@@ -689,6 +712,7 @@ class UsersController < ApplicationController
   def password_reset_show
     expires_now
     token = params[:token]
+
     password_reset_find_user(token, committing_change: false)
 
     if !@error
@@ -729,9 +753,7 @@ class UsersController < ApplicationController
     token = params[:token]
     password_reset_find_user(token, committing_change: true)
 
-    if params[:second_factor_token].present?
-      RateLimiter.new(nil, "second-factor-min-#{request.remote_ip}", 3, 1.minute).performed!
-    end
+    rate_limit_second_factor!(@user)
 
     # no point doing anything else if we can't even find
     # a user from the token
@@ -911,7 +933,7 @@ class UsersController < ApplicationController
 
   def account_created
     if current_user.present?
-      if SiteSetting.enable_sso_provider && payload = cookies.delete(:sso_payload)
+      if SiteSetting.enable_discourse_connect_provider && payload = cookies.delete(:sso_payload)
         return redirect_to(session_sso_provider_url + "?" + payload)
       elsif destination_url = cookies.delete(:destination_url)
         return redirect_to(destination_url)
@@ -960,7 +982,7 @@ class UsersController < ApplicationController
         elsif destination_url = cookies[:destination_url]
           cookies[:destination_url] = nil
           return redirect_to(destination_url)
-        elsif SiteSetting.enable_sso_provider && payload = cookies.delete(:sso_payload)
+        elsif SiteSetting.enable_discourse_connect_provider && payload = cookies.delete(:sso_payload)
           return redirect_to(session_sso_provider_url + "?" + payload)
         end
       else
@@ -1041,18 +1063,14 @@ class UsersController < ApplicationController
   def search_users
     term = params[:term].to_s.strip
 
-    topic_id = params[:topic_id]
-    topic_id = topic_id.to_i if topic_id
-
-    category_id = params[:category_id].to_i if category_id.present?
+    topic_id = params[:topic_id].to_i if params[:topic_id].present?
+    category_id = params[:category_id].to_i if params[:category_id].present?
 
     topic_allowed_users = params[:topic_allowed_users] || false
 
     group_names = params[:groups] || []
     group_names << params[:group] if params[:group]
-    if group_names.present?
-      @groups = Group.where(name: group_names)
-    end
+    @groups = Group.where(name: group_names) if group_names.present?
 
     options = {
      topic_allowed_users: topic_allowed_users,
@@ -1060,13 +1078,11 @@ class UsersController < ApplicationController
      groups: @groups
     }
 
-    if topic_id
-      options[:topic_id] = topic_id
-    end
-
-    if category_id
-      options[:category_id] = category_id
-    end
+    options[:include_staged_users] = !!ActiveModel::Type::Boolean.new.cast(params[:include_staged_users])
+    options[:last_seen_users] = !!ActiveModel::Type::Boolean.new.cast(params[:last_seen_users])
+    options[:limit] = params[:limit].to_i if params[:limit].present?
+    options[:topic_id] = topic_id if topic_id
+    options[:category_id] = category_id if category_id
 
     results = UserSearch.new(term, options).search
 
@@ -1075,8 +1091,10 @@ class UsersController < ApplicationController
 
     to_render = { users: results.as_json(only: user_fields, methods: [:avatar_template]) }
 
+    # blank term is only handy for in-topic search of users after @
+    # we do not want group results ever if term is blank
     groups =
-      if current_user
+      if term.present? && current_user
         if params[:include_groups] == 'true'
           Group.visible_groups(current_user)
         elsif params[:include_mentionable_groups] == 'true'
@@ -1085,10 +1103,6 @@ class UsersController < ApplicationController
           Group.messageable(current_user)
         end
       end
-
-    # blank term is only handy for in-topic search of users after @
-    # we do not want group results ever if term is blank
-    groups = nil if term.blank?
 
     if groups
       groups = Group.search_groups(term, groups: groups)
@@ -1108,7 +1122,7 @@ class UsersController < ApplicationController
     user = fetch_user_from_params
     guardian.ensure_can_edit!(user)
 
-    if SiteSetting.sso_overrides_avatar
+    if SiteSetting.discourse_connect_overrides_avatar
       return render json: failed_json, status: 422
     end
 
@@ -1121,11 +1135,9 @@ class UsersController < ApplicationController
 
     if type.blank? || type == 'system'
       upload_id = nil
+    elsif !SiteSetting.allow_uploaded_avatars
+      return render json: failed_json, status: 422
     else
-      if !SiteSetting.allow_uploaded_avatars
-        return render json: failed_json, status: 422
-      end
-
       upload_id = params[:upload_id]
       upload = Upload.find_by(id: upload_id)
 
@@ -1143,6 +1155,10 @@ class UsersController < ApplicationController
       else
         user.user_avatar.custom_upload_id = upload_id
       end
+    end
+
+    if user.is_system_user?
+      SiteSetting.use_site_small_logo_as_system_avatar = false
     end
 
     user.uploaded_avatar_id = upload_id
@@ -1179,6 +1195,11 @@ class UsersController < ApplicationController
     end
 
     user.uploaded_avatar_id = upload.id
+
+    if user.is_system_user?
+      SiteSetting.use_site_small_logo_as_system_avatar = false
+    end
+
     user.save!
 
     avatar = user.user_avatar || user.create_user_avatar
@@ -1289,7 +1310,7 @@ class UsersController < ApplicationController
   end
 
   def list_second_factors
-    raise Discourse::NotFound if SiteSetting.enable_sso || !SiteSetting.enable_local_logins
+    raise Discourse::NotFound if SiteSetting.enable_discourse_connect || !SiteSetting.enable_local_logins
 
     unless params[:password].empty?
       RateLimiter.new(nil, "login-hr-#{request.remote_ip}", SiteSetting.max_logins_per_ip_per_hour, 1.hour).performed!
@@ -1400,9 +1421,7 @@ class UsersController < ApplicationController
     totp_data = secure_session["staged-totp-#{current_user.id}"]
     totp_object = current_user.get_totp_object(totp_data)
 
-    [request.remote_ip, current_user.id].each do |key|
-      RateLimiter.new(nil, "second-factor-min-#{key}", 3, 1.minute).performed!
-    end
+    rate_limit_second_factor!(current_user)
 
     authenticated = !auth_token.blank? && totp_object.verify(
       auth_token,
@@ -1463,7 +1482,7 @@ class UsersController < ApplicationController
   end
 
   def second_factor_check_confirmed_password
-    raise Discourse::NotFound if SiteSetting.enable_sso || !SiteSetting.enable_local_logins
+    raise Discourse::NotFound if SiteSetting.enable_discourse_connect || !SiteSetting.enable_local_logins
 
     raise Discourse::InvalidAccess.new unless current_user && secure_session_confirmed?
   end
@@ -1562,6 +1581,21 @@ class UsersController < ApplicationController
 
   private
 
+  def clean_custom_field_values(field)
+    field_values = params[:user_fields][field.id.to_s]
+
+    return field_values if field_values.nil? || field_values.empty?
+
+    if field.field_type == "dropdown"
+      field.user_field_options.find_by_value(field_values)&.value
+    elsif field.field_type == "multiselect"
+      bad_values = field_values - field.user_field_options.map(&:value)
+      field_values - bad_values
+    else
+      field_values
+    end
+  end
+
   def password_reset_find_user(token, committing_change:)
     if EmailToken.valid_token_format?(token)
       @user = committing_change ? EmailToken.confirm(token) : EmailToken.confirmable(token)&.user
@@ -1616,6 +1650,7 @@ class UsersController < ApplicationController
       :profile_background_upload_url,
       :card_background_upload_url,
       :primary_group_id,
+      :flair_group_id,
       :featured_topic_id
     ]
 

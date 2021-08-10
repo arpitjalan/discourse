@@ -225,9 +225,7 @@ input {
     box-sizing: border-box;
     min-height: 30px;
     &:focus {
-      border-color: var(--tertiary);
-      box-shadow: shadow("focus");
-      outline: 0;
+      @include default-focus;
     }
   }
 }
@@ -287,9 +285,7 @@ textarea {
   background-color: var(--secondary);
   border: 1px solid var(--primary-medium);
   &:focus {
-    border-color: var(--tertiary);
-    box-shadow: shadow("focus");
-    outline: 0;
+    @include default-focus;
   }
 }
 
@@ -312,7 +308,8 @@ table {
   white-space: nowrap;
   cursor: pointer;
   .discourse-no-touch & {
-    &:hover {
+    &:hover,
+    &:focus {
       background-color: var(--primary-low);
     }
   }
@@ -352,7 +349,7 @@ table {
   @extend .clearfix;
   margin-right: auto;
   margin-left: auto;
-  padding: 0 8px;
+  padding: 0 10px;
 
   .contents {
     position: relative;
@@ -532,18 +529,21 @@ table {
   width: 230px;
   line-height: $line-height-medium;
 
-  > span:first-child {
-    display: inline-block;
+  .first-notification,
+  .read-later {
+    display: block;
     margin-bottom: 36px;
   }
 
-  .skip-new-user-tips {
+  .skip-new-user-tips,
+  .read-later-link {
     font-size: $font-down-1;
     text-decoration: underline;
   }
 
   &,
-  .skip-new-user-tips {
+  .skip-new-user-tips,
+  .read-later-link {
     color: #eee;
   }
 }
@@ -671,7 +671,7 @@ table {
 // Special elements
 
 #main-outlet {
-  padding-top: 1.8em;
+  padding-top: 2.5em;
 }
 
 #main {
@@ -858,4 +858,25 @@ table {
   text-align: center;
   z-index: z("max");
   color: var(--secondary);
+}
+
+.controls {
+  .grouped-control {
+    display: flex;
+    flex-direction: column;
+
+    .grouped-control-label {
+      padding: 0.25em 0;
+    }
+
+    .grouped-control-field {
+      flex: 1 0 auto;
+      display: flex;
+      padding-bottom: 0.25em;
+
+      label {
+        margin: 0;
+      }
+    }
+  }
 }

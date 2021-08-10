@@ -18,9 +18,7 @@ task 'assets:precompile:before' do
   # is recompiled
   Emoji.clear_cache
 
-  if !`which uglifyjs`.empty? && !ENV['SKIP_NODE_UGLIFY']
-    $node_uglify = true
-  end
+  $node_compress = `which terser`.present? && !ENV['SKIP_NODE_UGLIFY']
 
   unless ENV['USE_SPROCKETS_UGLIFY']
     $bypass_sprockets_uglify = true
@@ -36,6 +34,15 @@ task 'assets:precompile:before' do
 
   require 'sprockets'
   require 'digest/sha1'
+
+  if ENV['EMBER_CLI_PROD_ASSETS']
+    # Remove the assets that Ember CLI will handle for us
+    Rails.configuration.assets.precompile.reject! do |asset|
+      asset.is_a?(String) &&
+        (%w(application.js admin.js ember_jquery.js pretty-text-bundle.js start-discourse.js vendor.js).include?(asset) ||
+          asset.start_with?("discourse/tests"))
+    end
+  end
 end
 
 task 'assets:precompile:css' => 'environment' do
@@ -45,13 +52,13 @@ task 'assets:precompile:css' => 'environment' do
     STDERR.puts "Start compiling CSS: #{Time.zone.now}"
 
     RailsMultisite::ConnectionManagement.each_connection do |db|
-      next if ENV["PRECOMPILE_SHARED_MULTISITE_CSS"] == "1" && db != "default"
-
-      # css will get precompiled during first request if tables do not exist.
+      # CSS will get precompiled during first request if tables do not exist.
       if ActiveRecord::Base.connection.table_exists?(Theme.table_name)
-        STDERR.puts "Compiling css for #{db} #{Time.zone.now}"
+        STDERR.puts "-------------"
+        STDERR.puts "Compiling CSS for #{db} #{Time.zone.now}"
         begin
-          Stylesheet::Manager.precompile_css
+          Stylesheet::Manager.precompile_css if db == "default"
+          Stylesheet::Manager.precompile_theme_css
         rescue PG::UndefinedColumn, ActiveModel::MissingAttributeError, NoMethodError => e
           STDERR.puts "#{e.class} #{e.message}: #{e.backtrace.join("\n")}"
           STDERR.puts "Skipping precompilation of CSS cause schema is old, you are precompiling prior to running migrations."
@@ -65,7 +72,12 @@ end
 
 task 'assets:flush_sw' => 'environment' do
   begin
-    # Pending due to test failures.
+    hostname = Discourse.current_hostname
+    default_port = SiteSetting.force_https? ? 443 : 80
+    port = SiteSetting.port.to_i > 0 ? SiteSetting.port : default_port
+    STDERR.puts "Flushing service worker script"
+    `curl -s -m 1 --resolve '#{hostname}:#{port}:127.0.0.1' #{Discourse.base_url}/service-worker.js > /dev/null`
+    STDERR.puts "done"
   rescue
     STDERR.puts "Warning: unable to flush service worker script"
   end
@@ -98,7 +110,7 @@ def compress_node(from, to)
   base_source_map = assets_path + assets_additional_path
 
   cmd = <<~EOS
-    uglifyjs '#{assets_path}/#{from}' -m -c -o '#{to_path}' --source-map "base='#{base_source_map}',root='#{source_map_root}',url='#{source_map_url}'"
+    terser '#{assets_path}/#{from}' -m -c -o '#{to_path}' --source-map "base='#{base_source_map}',root='#{source_map_root}',url='#{source_map_url}'"
   EOS
 
   STDERR.puts cmd
@@ -160,7 +172,7 @@ def max_compress?(path, locales)
 end
 
 def compress(from, to)
-  if $node_uglify
+  if $node_compress
     compress_node(from, to)
   else
     compress_ruby(from, to)
@@ -168,10 +180,9 @@ def compress(from, to)
 end
 
 def concurrent?
-  executor = Concurrent::FixedThreadPool.new(Concurrent.processor_count)
-
   if ENV["SPROCKETS_CONCURRENT"] == "1"
     concurrent_compressors = []
+    executor = Concurrent::FixedThreadPool.new(Concurrent.processor_count)
     yield(Proc.new { |&block| concurrent_compressors << Concurrent::Future.execute(executor: executor) { block.call } })
     concurrent_compressors.each(&:wait!)
   else
@@ -212,7 +223,73 @@ def copy_maxmind(from_path, to_path)
   end
 end
 
+def copy_ember_cli_assets
+  ember_dir = "app/assets/javascripts/discourse"
+  ember_cli_assets = "#{ember_dir}/dist/assets/"
+  assets = {}
+  files = {}
+
+  unless system("yarn --cwd #{ember_dir} install")
+    STDERR.puts "Error running yarn install"
+    exit 1
+  end
+
+  unless system("yarn --cwd #{ember_dir} run ember build -prod")
+    STDERR.puts "Error running ember build"
+    exit 1
+  end
+
+  # Copy assets and generate manifest data
+  Dir["#{ember_cli_assets}**/*"].each do |f|
+    if f !~ /test/ && File.file?(f)
+      rel_file = f.sub(ember_cli_assets, "")
+      digest = f.scan(/\-([a-f0-9]+)\./)[0][0]
+
+      dest = "public/assets"
+      dest_sub = dest
+      if rel_file =~ /^([a-z\-\_]+)\//
+        dest_sub = "#{dest}/#{Regexp.last_match[1]}"
+      end
+
+      FileUtils.mkdir_p(dest_sub) unless Dir.exists?(dest_sub)
+      log_file = File.basename(rel_file).sub("-#{digest}", "")
+
+      # It's simpler to serve the file as `application.js`
+      if log_file == "discourse.js"
+        log_file = "application.js"
+        rel_file.sub!(/^discourse/, "application")
+      end
+
+      res = FileUtils.cp(f, "#{dest}/#{rel_file}")
+
+      assets[log_file] = rel_file
+      files[rel_file] = {
+        "logical_path" => log_file,
+        "mtime" => File.mtime(f).iso8601(9),
+        "size" => File.size(f),
+        "digest" => digest,
+        "integrity" => "sha384-#{Base64.encode64(Digest::SHA384.digest(File.read(f))).chomp}"
+      }
+    end
+  end
+
+  # Update manifest file
+  manifest_result = Dir["public/assets/.sprockets-manifest-*.json"]
+  if manifest_result && manifest_result.size == 1
+    json = JSON.parse(File.read(manifest_result[0]))
+    json['files'].merge!(files)
+    json['assets'].merge!(assets)
+    File.write(manifest_result[0], json.to_json)
+  end
+end
+
+task 'test_ember_cli_copy' do
+  copy_ember_cli_assets
+end
+
 task 'assets:precompile' => 'assets:precompile:before' do
+
+  copy_ember_cli_assets if ENV['EMBER_CLI_PROD_ASSETS']
 
   refresh_days = GlobalSetting.refresh_maxmind_db_during_precompile_days
 
@@ -257,6 +334,7 @@ task 'assets:precompile' => 'assets:precompile:before' do
     puts "Compressing Javascript and Generating Source Maps"
     startAll = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     manifest = Sprockets::Manifest.new(assets_path)
+
     locales = Set.new(["en"])
 
     RailsMultisite::ConnectionManagement.each_connection do |db|
@@ -274,6 +352,8 @@ task 'assets:precompile' => 'assets:precompile:before' do
           max_compress = max_compress?(info["logical_path"], locales)
           if File.exists?(_path)
             STDERR.puts "Skipping: #{file} already compressed"
+          elsif file.include? "discourse/tests"
+            STDERR.puts "Skipping: #{file}"
           else
             proc.call do
               start = Process.clock_gettime(Process::CLOCK_MONOTONIC)

@@ -355,6 +355,24 @@ describe TopicQuery do
     end
   end
 
+  context "#list_top_for" do
+    it "lists top for the week" do
+      Fabricate(:topic, like_count: 1000, posts_count: 100)
+      TopTopic.refresh!
+      expect(topic_query.list_top_for(:weekly).topics.count).to eq(1)
+    end
+
+    it "only allows periods defined by TopTopic.periods" do
+      expect { topic_query.list_top_for(:all) }.not_to raise_error
+      expect { topic_query.list_top_for(:yearly) }.not_to raise_error
+      expect { topic_query.list_top_for(:quarterly) }.not_to raise_error
+      expect { topic_query.list_top_for(:monthly) }.not_to raise_error
+      expect { topic_query.list_top_for(:weekly) }.not_to raise_error
+      expect { topic_query.list_top_for(:daily) }.not_to raise_error
+      expect { topic_query.list_top_for("some bad input") }.to raise_error(Discourse::InvalidParameters)
+    end
+  end
+
   context 'mute_all_categories_by_default' do
     fab!(:category) { Fabricate(:category_with_definition) }
     fab!(:topic) { Fabricate(:topic, category: category) }
@@ -393,14 +411,14 @@ describe TopicQuery do
     end
   end
 
-  context 'already seen categories' do
+  context 'already seen topics' do
     it 'is removed from new and visible on latest lists' do
       category = Fabricate(:category_with_definition)
       topic = Fabricate(:topic, category: category)
-      CategoryUser.create!(user_id: user.id,
-                           category_id: category.id,
-                           last_seen_at: topic.created_at
-                          )
+      DismissedTopicUser.create!(user_id: user.id,
+                                 topic_id: topic.id,
+                                 created_at: Time.zone.now
+                                )
       expect(topic_query.list_new.topics.map(&:id)).not_to include(topic.id)
       expect(topic_query.list_latest.topics.map(&:id)).to include(topic.id)
     end
@@ -598,7 +616,7 @@ describe TopicQuery do
 
     end
 
-    context 'after clearring a pinned topic' do
+    context 'after clearing a pinned topic' do
       before do
         pinned_topic.clear_pin_for(user)
       end
@@ -926,7 +944,7 @@ describe TopicQuery do
       let!(:archived_topic) { Fabricate(:topic, user: creator, archived: true) }
       let!(:invisible_topic) { Fabricate(:topic, user: creator, visible: false) }
 
-      it "should omit the closed/archived/invisbiel topics from suggested" do
+      it "should omit the closed/archived/invisible topics from suggested" do
         expect(TopicQuery.new.list_suggested_for(topic).topics).to eq([regular_topic])
       end
     end
@@ -1049,7 +1067,6 @@ describe TopicQuery do
 
             expect(TopicQuery.new(user, tags: [tag.name]).list_private_messages_tag(user).topics).to eq([private_message])
           end
-
         end
       end
 
@@ -1158,7 +1175,7 @@ describe TopicQuery do
       expect(topics).to contain_exactly(topic1, topic2, topic6)
     end
 
-    it 'should retun the right list for users in the same group' do
+    it 'should return the right list for users in the same group' do
       topics = TopicQuery.new(user).list_group_topics(group).topics
 
       expect(topics).to contain_exactly(topic1, topic2, topic3, topic6)
@@ -1172,75 +1189,6 @@ describe TopicQuery do
       topics = TopicQuery.new(user3).list_group_topics(group).topics
 
       expect(topics).to contain_exactly(topic1, topic2, topic6)
-    end
-  end
-
-  describe '#list_private_messages_group' do
-    fab!(:group) { Fabricate(:group) }
-
-    let!(:group_message) do
-      Fabricate(:private_message_topic,
-        allowed_groups: [group],
-        topic_allowed_users: [
-          Fabricate.build(:topic_allowed_user, user: Fabricate(:user)),
-        ]
-      )
-    end
-
-    before do
-      group.add(creator)
-    end
-
-    it 'should return the right list for a group user' do
-      topics = TopicQuery.new(nil, group_name: group.name)
-        .list_private_messages_group(creator)
-        .topics
-
-      expect(topics).to contain_exactly(group_message)
-    end
-
-    it 'should return the right list for an admin not part of the group' do
-      group.update!(name: group.name.capitalize)
-
-      topics = TopicQuery.new(nil, group_name: group.name.upcase)
-        .list_private_messages_group(Fabricate(:admin))
-        .topics
-
-      expect(topics).to contain_exactly(group_message)
-    end
-
-    it "should not allow a moderator not part of the group to view the group's messages" do
-      topics = TopicQuery.new(nil, group_name: group.name)
-        .list_private_messages_group(Fabricate(:moderator))
-        .topics
-
-      expect(topics).to eq([])
-    end
-
-    it "should not allow a user not part of the group to view the group's messages" do
-      topics = TopicQuery.new(nil, group_name: group.name)
-        .list_private_messages_group(Fabricate(:user))
-        .topics
-
-      expect(topics).to eq([])
-    end
-
-    context "Calculating minimum unread count for a topic" do
-      before { group.update!(publish_read_state: true) }
-
-      let(:listed_message) do
-        TopicQuery.new(nil, group_name: group.name)
-          .list_private_messages_group(creator)
-          .topics.first
-      end
-
-      it 'returns the last read post number' do
-        topic_group = TopicGroup.create!(
-          topic: group_message, group: group, last_read_post_number: 10
-        )
-
-        expect(listed_message.last_read_post_number).to eq(topic_group.last_read_post_number)
-      end
     end
   end
 
@@ -1329,18 +1277,6 @@ describe TopicQuery do
         expect(TopicQuery.new(admin).list_latest.topics).not_to include(partially_read) # Check we set up the topic/category correctly
         expect(TopicQuery.new(admin).list_unread.topics).to include(partially_read)
       end
-    end
-  end
-
-  describe '#list_private_messages' do
-    it "includes topics with moderator posts" do
-      private_message_topic = Fabricate(:private_message_post, user: user).topic
-
-      expect(TopicQuery.new(user).list_private_messages(user).topics).to be_empty
-
-      private_message_topic.add_moderator_post(admin, "Thank you for your flag")
-
-      expect(TopicQuery.new(user).list_private_messages(user).topics).to eq([private_message_topic])
     end
   end
 end

@@ -2,12 +2,11 @@ import * as ajaxlib from "discourse/lib/ajax";
 import { module, test } from "qunit";
 import Group from "discourse/models/group";
 import User from "discourse/models/user";
-import pretender from "discourse/tests/helpers/create-pretender";
 import sinon from "sinon";
 
 module("Unit | Model | user", function () {
   test("staff", function (assert) {
-    var user = User.create({ id: 1, username: "eviltrout" });
+    let user = User.create({ id: 1, username: "eviltrout" });
 
     assert.ok(!user.get("staff"), "user is not staff");
 
@@ -19,7 +18,7 @@ module("Unit | Model | user", function () {
   });
 
   test("searchContext", function (assert) {
-    var user = User.create({ id: 1, username: "EvilTrout" });
+    let user = User.create({ id: 1, username: "EvilTrout" });
 
     assert.deepEqual(
       user.get("searchContext"),
@@ -29,7 +28,7 @@ module("Unit | Model | user", function () {
   });
 
   test("isAllowedToUploadAFile", function (assert) {
-    var user = User.create({ trust_level: 0, admin: true });
+    let user = User.create({ trust_level: 0, admin: true });
     assert.ok(
       user.isAllowedToUploadAFile("image"),
       "admin can always upload a file"
@@ -74,13 +73,11 @@ module("Unit | Model | user", function () {
   test("resolvedTimezone", function (assert) {
     const tz = "Australia/Brisbane";
     let user = User.create({ timezone: tz, username: "chuck", id: 111 });
-    let stub = sinon.stub(moment.tz, "guess").returns("America/Chicago");
 
-    pretender.put("/u/chuck.json", () => {
-      return [200, { "Content-Type": "application/json" }, {}];
-    });
-
+    sinon.stub(moment.tz, "guess").returns("America/Chicago");
+    sinon.stub(ajaxlib.ajax);
     let spy = sinon.spy(ajaxlib, "ajax");
+
     assert.equal(
       user.resolvedTimezone(user),
       tz,
@@ -119,8 +116,6 @@ module("Unit | Model | user", function () {
       }),
       "if the user has no timezone, and the user is not the current user, do NOT save it with an AJAX update"
     );
-
-    stub.restore();
   });
 
   test("muted ids", function (assert) {

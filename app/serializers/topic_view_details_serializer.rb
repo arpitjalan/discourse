@@ -21,6 +21,7 @@ class TopicViewDetailsSerializer < ApplicationSerializer
      :can_split_merge_topic,
      :can_edit_staff_notes,
      :can_toggle_topic_visibility,
+     :can_pin_unpin_topic,
      :can_moderate_category]
   end
 
@@ -92,7 +93,7 @@ class TopicViewDetailsSerializer < ApplicationSerializer
 
   # NOTE: A Category Group Moderator moving a topic to a different category
   # may result in the 'can_edit?' result changing from `true` to `false`.
-  # Explictly returning a `false` value is required to update the client UI.
+  # Explicitly returning a `false` value is required to update the client UI.
   def can_edit
     scope.can_edit?(object.topic)
   end
@@ -147,6 +148,10 @@ class TopicViewDetailsSerializer < ApplicationSerializer
 
   def include_can_toggle_topic_visibility?
     scope.can_toggle_topic_visibility?(object.topic)
+  end
+
+  def include_can_pin_unpin_topic?
+    scope.can_pin_unpin_topic?(object.topic)
   end
 
   def can_perform_action_available_to_group_moderators?

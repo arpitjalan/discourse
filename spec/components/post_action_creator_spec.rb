@@ -178,7 +178,7 @@ describe PostActionCreator do
           expect(reviewable.reviewable_scores.select(&:pending?).count).to eq(1)
         end
 
-        it "succesfully flags the post if it was reviewed more than 24 hours ago" do
+        it "successfully flags the post if it was reviewed more than 24 hours ago" do
           reviewable.update!(updated_at: 25.hours.ago)
           post.last_version_at = 30.hours.ago
 
@@ -188,7 +188,7 @@ describe PostActionCreator do
           expect(result.reviewable).to be_present
         end
 
-        it "succesfully flags the post if it was edited after being reviewed" do
+        it "successfully flags the post if it was edited after being reviewed" do
           reviewable.update!(updated_at: 10.minutes.ago)
           post.last_version_at = 1.minute.ago
 
@@ -217,6 +217,45 @@ describe PostActionCreator do
       expect(scores[0]).to be_agreed
       expect(scores[1]).to be_agreed
       expect(reviewable.reload).to be_approved
+    end
+  end
+
+  context "queue_for_review" do
+    fab!(:admin) { Fabricate(:admin) }
+
+    it 'fails if the user is not a staff member' do
+      creator = PostActionCreator.new(
+        user, post,
+        PostActionType.types[:notify_moderators], queue_for_review: true
+      )
+      result = creator.perform
+
+      expect(result.success?).to eq(false)
+    end
+
+    it 'creates a new reviewable and hides the post' do
+      result = build_creator.perform
+
+      expect(result.success?).to eq(true)
+
+      score = result.reviewable.reviewable_scores.last
+      expect(score.reason).to eq('queued_by_staff')
+      expect(post.reload.hidden?).to eq(true)
+    end
+
+    it 'hides the topic even if it has replies' do
+      Fabricate(:post, topic: post.topic)
+
+      result = build_creator.perform
+
+      expect(post.topic.reload.visible?).to eq(false)
+    end
+
+    def build_creator
+      PostActionCreator.new(
+        admin, post,
+        PostActionType.types[:notify_moderators], queue_for_review: true
+      )
     end
   end
 end

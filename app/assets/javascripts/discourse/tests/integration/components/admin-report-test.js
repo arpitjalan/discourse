@@ -2,18 +2,20 @@ import componentTest, {
   setupRenderingTest,
 } from "discourse/tests/helpers/component-test";
 import {
+  count,
   discourseModule,
   exists,
   queryAll,
 } from "discourse/tests/helpers/qunit-helpers";
 import { click } from "@ember/test-helpers";
+import hbs from "htmlbars-inline-precompile";
 import pretender from "discourse/tests/helpers/create-pretender";
 
 discourseModule("Integration | Component | admin-report", function (hooks) {
   setupRenderingTest(hooks);
 
   componentTest("default", {
-    template: "{{admin-report dataSourceName='signups'}}",
+    template: hbs`{{admin-report dataSourceName='signups'}}`,
 
     async test(assert) {
       assert.ok(exists(".admin-report.signups"));
@@ -79,7 +81,7 @@ discourseModule("Integration | Component | admin-report", function (hooks) {
   });
 
   componentTest("options", {
-    template: "{{admin-report dataSourceName='signups' reportOptions=options}}",
+    template: hbs`{{admin-report dataSourceName='signups' reportOptions=options}}`,
 
     beforeEach() {
       this.set("options", {
@@ -93,7 +95,7 @@ discourseModule("Integration | Component | admin-report", function (hooks) {
     test(assert) {
       assert.ok(exists(".pagination"), "it paginates the results");
       assert.equal(
-        queryAll(".pagination button").length,
+        count(".pagination button"),
         3,
         "it creates the correct number of pages"
       );
@@ -103,7 +105,7 @@ discourseModule("Integration | Component | admin-report", function (hooks) {
   });
 
   componentTest("switch modes", {
-    template: "{{admin-report dataSourceName='signups' showFilteringUI=true}}",
+    template: hbs`{{admin-report dataSourceName='signups' showFilteringUI=true}}`,
 
     async test(assert) {
       await click(".mode-btn.chart");
@@ -114,7 +116,7 @@ discourseModule("Integration | Component | admin-report", function (hooks) {
   });
 
   componentTest("timeout", {
-    template: "{{admin-report dataSourceName='signups_timeout'}}",
+    template: hbs`{{admin-report dataSourceName='signups_timeout'}}`,
 
     test(assert) {
       assert.ok(exists(".alert-error.timeout"), "it displays a timeout error");
@@ -122,7 +124,7 @@ discourseModule("Integration | Component | admin-report", function (hooks) {
   });
 
   componentTest("no data", {
-    template: "{{admin-report dataSourceName='posts'}}",
+    template: hbs`{{admin-report dataSourceName='posts'}}`,
 
     test(assert) {
       assert.ok(exists(".no-data"), "it displays a no data alert");
@@ -130,7 +132,7 @@ discourseModule("Integration | Component | admin-report", function (hooks) {
   });
 
   componentTest("exception", {
-    template: "{{admin-report dataSourceName='signups_exception'}}",
+    template: hbs`{{admin-report dataSourceName='signups_exception'}}`,
 
     test(assert) {
       assert.ok(exists(".alert-error.exception"), "it displays an error");
@@ -154,7 +156,7 @@ discourseModule("Integration | Component | admin-report", function (hooks) {
       });
     },
 
-    template: "{{admin-report dataSourceName='signups_rate_limited'}}",
+    template: hbs`{{admin-report dataSourceName='signups_rate_limited'}}`,
 
     test(assert) {
       assert.ok(
@@ -164,8 +166,19 @@ discourseModule("Integration | Component | admin-report", function (hooks) {
     },
   });
 
+  componentTest("post edits", {
+    template: hbs`{{admin-report dataSourceName='post_edits'}}`,
+
+    test(assert) {
+      assert.ok(
+        exists(".admin-report.post-edits"),
+        "it displays the post edits report"
+      );
+    },
+  });
+
   componentTest("not found", {
-    template: "{{admin-report dataSourceName='not_found'}}",
+    template: hbs`{{admin-report dataSourceName='not_found'}}`,
 
     test(assert) {
       assert.ok(

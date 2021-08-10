@@ -1,4 +1,4 @@
-import Controller, { inject } from "@ember/controller";
+import Controller, { inject as controller } from "@ember/controller";
 import { alias, equal } from "@ember/object/computed";
 import { mergeTopic, movePosts } from "discourse/models/topic";
 import DiscourseURL from "discourse/lib/url";
@@ -41,7 +41,7 @@ export default Controller.extend(ModalFunctionality, {
     ];
   },
 
-  topicController: inject("topic"),
+  topicController: controller("topic"),
   selectedPostsCount: alias("topicController.selectedPostsCount"),
   selectedAllPosts: alias("topicController.selectedAllPosts"),
   selectedPosts: alias("topicController.selectedPosts"),
@@ -80,7 +80,7 @@ export default Controller.extend(ModalFunctionality, {
       categoryId: null,
       topicName: "",
       tags: null,
-      participants: null,
+      participants: [],
     });
 
     const isPrivateMessage = this.get("model.isPrivateMessage");
@@ -133,7 +133,7 @@ export default Controller.extend(ModalFunctionality, {
       } else if (type === "existingMessage") {
         mergeOptions = {
           destination_topic_id: this.selectedTopicId,
-          participants: this.participants,
+          participants: this.participants.join(","),
           archetype: "private_message",
         };
         moveOptions = Object.assign(

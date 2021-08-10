@@ -18,13 +18,13 @@ else
   # this allows us to include the bits of rails we use without pieces we do not.
   #
   # To issue a rails update bump the version number here
-  gem 'actionmailer', '6.0.3.3'
-  gem 'actionpack', '6.0.3.3'
-  gem 'actionview', '6.0.3.3'
-  gem 'activemodel', '6.0.3.3'
-  gem 'activerecord', '6.0.3.3'
-  gem 'activesupport', '6.0.3.3'
-  gem 'railties', '6.0.3.3'
+  gem 'actionmailer', '6.1.3.2'
+  gem 'actionpack', '6.1.3.2'
+  gem 'actionview', '6.1.3.2'
+  gem 'activemodel', '6.1.3.2'
+  gem 'activerecord', '6.1.3.2'
+  gem 'activesupport', '6.1.3.2'
+  gem 'railties', '6.1.3.2'
   gem 'sprockets-rails'
 end
 
@@ -40,7 +40,7 @@ gem 'actionview_precompiler', require: false
 
 gem 'seed-fu'
 
-gem 'mail', require: false
+gem 'mail', git: 'https://github.com/discourse/mail.git', require: false
 gem 'mini_mime'
 gem 'mini_suffix'
 
@@ -59,8 +59,6 @@ gem 'redis-namespace'
 # are long term goal here is to fork this gem so we have a
 # better maintained living fork
 gem 'active_model_serializers', '~> 0.8.3'
-
-gem 'onebox'
 
 gem 'http_accept_language', require: false
 
@@ -90,12 +88,11 @@ gem 'unf', require: false
 
 gem 'email_reply_trimmer'
 
-# Forked until https://github.com/toy/image_optim/pull/162 is merged
-# https://github.com/discourse/image_optim
-gem 'discourse_image_optim', require: 'image_optim'
+gem 'image_optim'
 gem 'multi_json'
 gem 'mustache'
 gem 'nokogiri'
+gem 'loofah'
 gem 'css_parser', require: false
 
 gem 'omniauth'
@@ -132,6 +129,7 @@ gem 'rack-protection' # security
 gem 'cbor', require: false
 gem 'cose', require: false
 gem 'addressable'
+gem 'json_schemer'
 
 # Gems used only for assets and not required in production environments by default.
 # Allow everywhere for now cause we are allowing asset debugging in production
@@ -167,7 +165,8 @@ group :test, :development do
   gem 'parallel_tests'
 
   gem 'rswag-specs'
-  gem 'json_schemer'
+
+  gem 'annotate'
 end
 
 group :development do
@@ -176,7 +175,11 @@ group :development do
   gem 'better_errors', platform: :mri, require: !!ENV['BETTER_ERRORS']
   gem 'binding_of_caller'
   gem 'yaml-lint'
-  gem 'annotate'
+end
+
+group ENV["ALLOW_DEV_POPULATE"] == "1" ? :production : :development do
+  gem 'discourse_dev_assets'
+  gem 'faker', "~> 2.16"
 end
 
 # this is an optional gem, it provides a high performance replacement
@@ -228,6 +231,8 @@ gem 'sshkey', require: false
 
 gem 'rchardet', require: false
 gem 'lz4-ruby', require: false, platform: :ruby
+
+gem 'sanitize'
 
 if ENV["IMPORT"] == "1"
   gem 'mysql2'

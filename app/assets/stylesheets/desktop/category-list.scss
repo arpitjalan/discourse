@@ -38,6 +38,7 @@
 
     .value {
       font-size: $font-up-1;
+      font-weight: bold;
     }
     .unit {
       font-size: $font-down-1;
@@ -61,7 +62,7 @@
     .badge-wrapper {
       margin-right: 0.5em;
     }
-    .badge-notification.new-posts {
+    .badge-notification.unread-posts {
       display: block;
       padding: 0;
     }
@@ -86,7 +87,7 @@
     .topic-statuses {
       margin-right: 0.15em;
     }
-    .topic-post-badges .badge.new-posts,
+    .topic-post-badges .badge.unread-posts,
     .title {
       margin-right: 5px;
     }
@@ -142,7 +143,6 @@
   }
 
   .discourse-tags {
-    display: inline-block;
     .discourse-tag {
       font-size: $font-down-1;
     }

@@ -211,9 +211,10 @@ class Admin::UsersController < Admin::AdminController
 
   def add_group
     group = Group.find(params[:group_id].to_i)
-
     raise Discourse::NotFound unless group
+
     return render_json_error(I18n.t('groups.errors.can_not_modify_automatic')) if group.automatic
+    guardian.ensure_can_edit!(group)
 
     group.add(@user)
     GroupActionLogger.new(current_user, group).log_add_user_to_group(@user)
@@ -223,12 +224,14 @@ class Admin::UsersController < Admin::AdminController
 
   def remove_group
     group = Group.find(params[:group_id].to_i)
-
     raise Discourse::NotFound unless group
-    return render_json_error(I18n.t('groups.errors.can_not_modify_automatic')) if group.automatic
 
-    group.remove(@user)
-    GroupActionLogger.new(current_user, group).log_remove_user_from_group(@user)
+    return render_json_error(I18n.t('groups.errors.can_not_modify_automatic')) if group.automatic
+    guardian.ensure_can_edit!(group)
+
+    if group.remove(@user)
+      GroupActionLogger.new(current_user, group).log_remove_user_from_group(@user)
+    end
 
     render body: nil
   end
@@ -345,7 +348,7 @@ class Admin::UsersController < Admin::AdminController
       keep_posts: true,
       post_id: params[:post_id]
     )
-    if silencer.silence && message.present?
+    if silencer.silence
       Jobs.enqueue(
         :critical_user_email,
         type: :account_silenced,
@@ -420,7 +423,7 @@ class Admin::UsersController < Admin::AdminController
       rescue UserDestroyer::PostsExistError
         render json: {
           deleted: false,
-          message: "User #{user.username} has #{user.post_count} posts, so they can't be deleted."
+          message: I18n.t("user.cannot_delete_has_posts", username: user.username, count: user.posts.joins(:topic).count),
         }, status: 403
       end
     end
@@ -439,12 +442,12 @@ class Admin::UsersController < Admin::AdminController
   end
 
   def sync_sso
-    return render body: nil, status: 404 unless SiteSetting.enable_sso
+    return render body: nil, status: 404 unless SiteSetting.enable_discourse_connect
 
     begin
-      sso = DiscourseSingleSignOn.parse("sso=#{params[:sso]}&sig=#{params[:sig]}")
-    rescue DiscourseSingleSignOn::ParseError => e
-      return render json: failed_json.merge(message: I18n.t("sso.login_error")), status: 422
+      sso = DiscourseSingleSignOn.parse("sso=#{params[:sso]}&sig=#{params[:sig]}", secure_session: secure_session)
+    rescue DiscourseSingleSignOn::ParseError
+      return render json: failed_json.merge(message: I18n.t("discourse_connect.login_error")), status: 422
     end
 
     begin
@@ -453,7 +456,7 @@ class Admin::UsersController < Admin::AdminController
     rescue ActiveRecord::RecordInvalid => ex
       render json: failed_json.merge(message: ex.message), status: 403
     rescue DiscourseSingleSignOn::BlankExternalId => ex
-      render json: failed_json.merge(message: I18n.t('sso.blank_id_error')), status: 422
+      render json: failed_json.merge(message: I18n.t('discourse_connect.blank_id_error')), status: 422
     end
   end
 

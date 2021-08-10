@@ -1,9 +1,11 @@
-import { click, fillIn } from "@ember/test-helpers";
+import { click, fillIn, settled } from "@ember/test-helpers";
 import componentTest, {
   setupRenderingTest,
 } from "discourse/tests/helpers/component-test";
 import {
   discourseModule,
+  exists,
+  query,
   queryAll,
 } from "discourse/tests/helpers/qunit-helpers";
 import {
@@ -13,6 +15,7 @@ import {
 import I18n from "I18n";
 import { clearToolbarCallbacks } from "discourse/components/d-editor";
 import formatTextWithSelection from "discourse/tests/helpers/d-editor-helper";
+import hbs from "htmlbars-inline-precompile";
 import { next } from "@ember/runloop";
 import { withPluginApi } from "discourse/lib/plugin-api";
 
@@ -20,10 +23,10 @@ discourseModule("Integration | Component | d-editor", function (hooks) {
   setupRenderingTest(hooks);
 
   componentTest("preview updates with markdown", {
-    template: "{{d-editor value=value}}",
+    template: hbs`{{d-editor value=value}}`,
 
     async test(assert) {
-      assert.ok(queryAll(".d-editor-button-bar").length);
+      assert.ok(exists(".d-editor-button-bar"));
       await fillIn(".d-editor-input", "hello **world**");
 
       assert.equal(this.value, "hello **world**");
@@ -35,7 +38,7 @@ discourseModule("Integration | Component | d-editor", function (hooks) {
   });
 
   componentTest("preview sanitizes HTML", {
-    template: "{{d-editor value=value}}",
+    template: hbs`{{d-editor value=value}}`,
 
     async test(assert) {
       await fillIn(".d-editor-input", `"><svg onload="prompt(/xss/)"></svg>`);
@@ -44,7 +47,7 @@ discourseModule("Integration | Component | d-editor", function (hooks) {
   });
 
   componentTest("updating the value refreshes the preview", {
-    template: "{{d-editor value=value}}",
+    template: hbs`{{d-editor value=value}}`,
 
     beforeEach() {
       this.set("value", "evil trout");
@@ -56,7 +59,9 @@ discourseModule("Integration | Component | d-editor", function (hooks) {
         "<p>evil trout</p>"
       );
 
-      await this.set("value", "zogstrip");
+      this.set("value", "zogstrip");
+      await settled();
+
       assert.equal(
         queryAll(".d-editor-preview").html().trim(),
         "<p>zogstrip</p>"
@@ -72,12 +77,12 @@ discourseModule("Integration | Component | d-editor", function (hooks) {
 
   function testCase(title, testFunc) {
     componentTest(title, {
-      template: "{{d-editor value=value}}",
+      template: hbs`{{d-editor value=value}}`,
       beforeEach() {
         this.set("value", "hello world.");
       },
       test(assert) {
-        const textarea = jumpEnd(queryAll("textarea.d-editor-input")[0]);
+        const textarea = jumpEnd(query("textarea.d-editor-input"));
         testFunc.call(this, assert, textarea);
       },
     });
@@ -85,45 +90,45 @@ discourseModule("Integration | Component | d-editor", function (hooks) {
 
   function composerTestCase(title, testFunc) {
     componentTest(title, {
-      template: "{{d-editor value=value composerEvents=true}}",
+      template: hbs`{{d-editor value=value composerEvents=true}}`,
       beforeEach() {
         this.set("value", "hello world.");
       },
 
       test(assert) {
-        const textarea = jumpEnd(queryAll("textarea.d-editor-input")[0]);
+        const textarea = jumpEnd(query("textarea.d-editor-input"));
         testFunc.call(this, assert, textarea);
       },
     });
   }
 
-  testCase(`selecting the space before a word`, async function (
-    assert,
-    textarea
-  ) {
-    textarea.selectionStart = 5;
-    textarea.selectionEnd = 7;
+  testCase(
+    `selecting the space before a word`,
+    async function (assert, textarea) {
+      textarea.selectionStart = 5;
+      textarea.selectionEnd = 7;
 
-    await click(`button.bold`);
+      await click(`button.bold`);
 
-    assert.equal(this.value, `hello **w**orld.`);
-    assert.equal(textarea.selectionStart, 8);
-    assert.equal(textarea.selectionEnd, 9);
-  });
+      assert.equal(this.value, `hello **w**orld.`);
+      assert.equal(textarea.selectionStart, 8);
+      assert.equal(textarea.selectionEnd, 9);
+    }
+  );
 
-  testCase(`selecting the space after a word`, async function (
-    assert,
-    textarea
-  ) {
-    textarea.selectionStart = 0;
-    textarea.selectionEnd = 6;
+  testCase(
+    `selecting the space after a word`,
+    async function (assert, textarea) {
+      textarea.selectionStart = 0;
+      textarea.selectionEnd = 6;
 
-    await click(`button.bold`);
+      await click(`button.bold`);
 
-    assert.equal(this.value, `**hello** world.`);
-    assert.equal(textarea.selectionStart, 2);
-    assert.equal(textarea.selectionEnd, 7);
-  });
+      assert.equal(this.value, `**hello** world.`);
+      assert.equal(textarea.selectionStart, 2);
+      assert.equal(textarea.selectionEnd, 7);
+    }
+  );
 
   testCase(`bold button with no selection`, async function (assert, textarea) {
     await click(`button.bold`);
@@ -149,37 +154,37 @@ discourseModule("Integration | Component | d-editor", function (hooks) {
     assert.equal(textarea.selectionEnd, 11);
   });
 
-  testCase(`bold with a multiline selection`, async function (
-    assert,
-    textarea
-  ) {
-    this.set("value", "hello\n\nworld\n\ntest.");
+  testCase(
+    `bold with a multiline selection`,
+    async function (assert, textarea) {
+      this.set("value", "hello\n\nworld\n\ntest.");
 
-    textarea.selectionStart = 0;
-    textarea.selectionEnd = 12;
+      textarea.selectionStart = 0;
+      textarea.selectionEnd = 12;
 
-    await click(`button.bold`);
-    assert.equal(this.value, `**hello**\n\n**world**\n\ntest.`);
-    assert.equal(textarea.selectionStart, 0);
-    assert.equal(textarea.selectionEnd, 20);
+      await click(`button.bold`);
+      assert.equal(this.value, `**hello**\n\n**world**\n\ntest.`);
+      assert.equal(textarea.selectionStart, 0);
+      assert.equal(textarea.selectionEnd, 20);
 
-    await click(`button.bold`);
-    assert.equal(this.value, `hello\n\nworld\n\ntest.`);
-    assert.equal(textarea.selectionStart, 0);
-    assert.equal(textarea.selectionEnd, 12);
-  });
+      await click(`button.bold`);
+      assert.equal(this.value, `hello\n\nworld\n\ntest.`);
+      assert.equal(textarea.selectionStart, 0);
+      assert.equal(textarea.selectionEnd, 12);
+    }
+  );
 
-  testCase(`italic button with no selection`, async function (
-    assert,
-    textarea
-  ) {
-    await click(`button.italic`);
-    const example = I18n.t(`composer.italic_text`);
-    assert.equal(this.value, `hello world.*${example}*`);
+  testCase(
+    `italic button with no selection`,
+    async function (assert, textarea) {
+      await click(`button.italic`);
+      const example = I18n.t(`composer.italic_text`);
+      assert.equal(this.value, `hello world.*${example}*`);
 
-    assert.equal(textarea.selectionStart, 13);
-    assert.equal(textarea.selectionEnd, 13 + example.length);
-  });
+      assert.equal(textarea.selectionStart, 13);
+      assert.equal(textarea.selectionEnd, 13 + example.length);
+    }
+  );
 
   testCase(`italic button with a selection`, async function (assert, textarea) {
     textarea.selectionStart = 6;
@@ -196,28 +201,28 @@ discourseModule("Integration | Component | d-editor", function (hooks) {
     assert.equal(textarea.selectionEnd, 11);
   });
 
-  testCase(`italic with a multiline selection`, async function (
-    assert,
-    textarea
-  ) {
-    this.set("value", "hello\n\nworld\n\ntest.");
+  testCase(
+    `italic with a multiline selection`,
+    async function (assert, textarea) {
+      this.set("value", "hello\n\nworld\n\ntest.");
 
-    textarea.selectionStart = 0;
-    textarea.selectionEnd = 12;
+      textarea.selectionStart = 0;
+      textarea.selectionEnd = 12;
 
-    await click(`button.italic`);
-    assert.equal(this.value, `*hello*\n\n*world*\n\ntest.`);
-    assert.equal(textarea.selectionStart, 0);
-    assert.equal(textarea.selectionEnd, 16);
+      await click(`button.italic`);
+      assert.equal(this.value, `*hello*\n\n*world*\n\ntest.`);
+      assert.equal(textarea.selectionStart, 0);
+      assert.equal(textarea.selectionEnd, 16);
 
-    await click(`button.italic`);
-    assert.equal(this.value, `hello\n\nworld\n\ntest.`);
-    assert.equal(textarea.selectionStart, 0);
-    assert.equal(textarea.selectionEnd, 12);
-  });
+      await click(`button.italic`);
+      assert.equal(this.value, `hello\n\nworld\n\ntest.`);
+      assert.equal(textarea.selectionStart, 0);
+      assert.equal(textarea.selectionEnd, 12);
+    }
+  );
 
   componentTest("advanced code", {
-    template: "{{d-editor value=value}}",
+    template: hbs`{{d-editor value=value}}`,
     beforeEach() {
       this.siteSettings.code_formatting_style = "4-spaces-indent";
       this.set(
@@ -233,7 +238,7 @@ discourseModule("Integration | Component | d-editor", function (hooks) {
     },
 
     async test(assert) {
-      const textarea = queryAll("textarea.d-editor-input")[0];
+      const textarea = query("textarea.d-editor-input");
       textarea.selectionStart = 0;
       textarea.selectionEnd = textarea.value.length;
 
@@ -252,13 +257,13 @@ discourseModule("Integration | Component | d-editor", function (hooks) {
   });
 
   componentTest("code button", {
-    template: "{{d-editor value=value}}",
+    template: hbs`{{d-editor value=value}}`,
     beforeEach() {
       this.siteSettings.code_formatting_style = "4-spaces-indent";
     },
 
     async test(assert) {
-      const textarea = jumpEnd(queryAll("textarea.d-editor-input")[0]);
+      const textarea = jumpEnd(query("textarea.d-editor-input"));
 
       await click("button.code");
       assert.equal(this.value, `    ${I18n.t("composer.code_text")}`);
@@ -337,13 +342,13 @@ third line`
   });
 
   componentTest("code fences", {
-    template: "{{d-editor value=value}}",
+    template: hbs`{{d-editor value=value}}`,
     beforeEach() {
       this.set("value", "");
     },
 
     async test(assert) {
-      const textarea = jumpEnd(queryAll("textarea.d-editor-input")[0]);
+      const textarea = jumpEnd(query("textarea.d-editor-input"));
 
       await click("button.code");
       assert.equal(
@@ -450,12 +455,12 @@ third line`
   });
 
   componentTest("quote button - empty lines", {
-    template: "{{d-editor value=value composerEvents=true}}",
+    template: hbs`{{d-editor value=value composerEvents=true}}`,
     beforeEach() {
       this.set("value", "one\n\ntwo\n\nthree");
     },
     async test(assert) {
-      const textarea = jumpEnd(queryAll("textarea.d-editor-input")[0]);
+      const textarea = jumpEnd(query("textarea.d-editor-input"));
 
       textarea.selectionStart = 0;
 
@@ -471,12 +476,12 @@ third line`
   });
 
   componentTest("quote button - selecting empty lines", {
-    template: "{{d-editor value=value composerEvents=true}}",
+    template: hbs`{{d-editor value=value composerEvents=true}}`,
     beforeEach() {
       this.set("value", "one\n\n\n\ntwo");
     },
     async test(assert) {
-      const textarea = jumpEnd(queryAll("textarea.d-editor-input")[0]);
+      const textarea = jumpEnd(query("textarea.d-editor-input"));
 
       textarea.selectionStart = 6;
       textarea.selectionEnd = 10;
@@ -508,20 +513,20 @@ third line`
     assert.equal(this.value, "hello\n\nwor\n\nld.\n\n> Blockquote");
   });
 
-  testCase(`bullet button with no selection`, async function (
-    assert,
-    textarea
-  ) {
-    const example = I18n.t("composer.list_item");
+  testCase(
+    `bullet button with no selection`,
+    async function (assert, textarea) {
+      const example = I18n.t("composer.list_item");
 
-    await click(`button.bullet`);
-    assert.equal(this.value, `hello world.\n\n* ${example}`);
-    assert.equal(textarea.selectionStart, 14);
-    assert.equal(textarea.selectionEnd, 16 + example.length);
+      await click(`button.bullet`);
+      assert.equal(this.value, `hello world.\n\n* ${example}`);
+      assert.equal(textarea.selectionStart, 14);
+      assert.equal(textarea.selectionEnd, 16 + example.length);
 
-    await click(`button.bullet`);
-    assert.equal(this.value, `hello world.\n\n${example}`);
-  });
+      await click(`button.bullet`);
+      assert.equal(this.value, `hello world.\n\n${example}`);
+    }
+  );
 
   testCase(`bullet button with a selection`, async function (assert, textarea) {
     textarea.selectionStart = 6;
@@ -538,25 +543,25 @@ third line`
     assert.equal(textarea.selectionEnd, 12);
   });
 
-  testCase(`bullet button with a multiple line selection`, async function (
-    assert,
-    textarea
-  ) {
-    this.set("value", "* Hello\n\nWorld\n\nEvil");
+  testCase(
+    `bullet button with a multiple line selection`,
+    async function (assert, textarea) {
+      this.set("value", "* Hello\n\nWorld\n\nEvil");
 
-    textarea.selectionStart = 0;
-    textarea.selectionEnd = 20;
+      textarea.selectionStart = 0;
+      textarea.selectionEnd = 20;
 
-    await click(`button.bullet`);
-    assert.equal(this.value, "Hello\n\nWorld\n\nEvil");
-    assert.equal(textarea.selectionStart, 0);
-    assert.equal(textarea.selectionEnd, 18);
+      await click(`button.bullet`);
+      assert.equal(this.value, "Hello\n\nWorld\n\nEvil");
+      assert.equal(textarea.selectionStart, 0);
+      assert.equal(textarea.selectionEnd, 18);
 
-    await click(`button.bullet`);
-    assert.equal(this.value, "* Hello\n\n* World\n\n* Evil");
-    assert.equal(textarea.selectionStart, 0);
-    assert.equal(textarea.selectionEnd, 24);
-  });
+      await click(`button.bullet`);
+      assert.equal(this.value, "* Hello\n\n* World\n\n* Evil");
+      assert.equal(textarea.selectionStart, 0);
+      assert.equal(textarea.selectionEnd, 24);
+    }
+  );
 
   testCase(`list button with no selection`, async function (assert, textarea) {
     const example = I18n.t("composer.list_item");
@@ -605,7 +610,7 @@ third line`
   });
 
   componentTest("clicking the toggle-direction changes dir from ltr to rtl", {
-    template: "{{d-editor value=value}}",
+    template: hbs`{{d-editor value=value}}`,
     beforeEach() {
       this.siteSettings.support_mixed_text_direction = true;
       this.siteSettings.default_locale = "en";
@@ -619,7 +624,7 @@ third line`
   });
 
   componentTest("clicking the toggle-direction changes dir from ltr to rtl", {
-    template: "{{d-editor value=value}}",
+    template: hbs`{{d-editor value=value}}`,
     beforeEach() {
       this.siteSettings.support_mixed_text_direction = true;
       this.siteSettings.default_locale = "en";
@@ -633,26 +638,26 @@ third line`
     },
   });
 
-  testCase(`doesn't jump to bottom with long text`, async function (
-    assert,
-    textarea
-  ) {
-    let longText = "hello world.";
-    for (let i = 0; i < 8; i++) {
-      longText = longText + longText;
+  testCase(
+    `doesn't jump to bottom with long text`,
+    async function (assert, textarea) {
+      let longText = "hello world.";
+      for (let i = 0; i < 8; i++) {
+        longText = longText + longText;
+      }
+      this.set("value", longText);
+
+      $(textarea).scrollTop(0);
+      textarea.selectionStart = 3;
+      textarea.selectionEnd = 3;
+
+      await click("button.bold");
+      assert.equal($(textarea).scrollTop(), 0, "it stays scrolled up");
     }
-    this.set("value", longText);
-
-    $(textarea).scrollTop(0);
-    textarea.selectionStart = 3;
-    textarea.selectionEnd = 3;
-
-    await click("button.bold");
-    assert.equal($(textarea).scrollTop(), 0, "it stays scrolled up");
-  });
+  );
 
   componentTest("emoji", {
-    template: "{{d-editor value=value}}",
+    template: hbs`{{d-editor value=value}}`,
     beforeEach() {
       // Test adding a custom button
       withPluginApi("0.1", (api) => {
@@ -673,7 +678,7 @@ third line`
     },
 
     async test(assert) {
-      jumpEnd(queryAll("textarea.d-editor-input")[0]);
+      jumpEnd(query("textarea.d-editor-input"));
       await click("button.emoji");
 
       await click(
@@ -703,23 +708,38 @@ third line`
     assert.equal(this.value, "red yellow blue");
   });
 
-  function paste(element, text) {
+  async function paste(element, text) {
     let e = new Event("paste");
     e.clipboardData = { getData: () => text };
     element.dispatchEvent(e);
+    await settled();
   }
 
   componentTest("paste table", {
-    template: "{{d-editor value=value composerEvents=true}}",
+    template: hbs`{{d-editor value=value composerEvents=true}}`,
     beforeEach() {
       this.set("value", "");
       this.siteSettings.enable_rich_text_paste = true;
     },
 
     async test(assert) {
-      let element = queryAll(".d-editor")[0];
+      let element = query(".d-editor");
       await paste(element, "\ta\tb\n1\t2\t3");
       assert.equal(this.value, "||a|b|\n|---|---|---|\n|1|2|3|\n");
+    },
+  });
+
+  componentTest("paste a different table", {
+    template: hbs`{{d-editor value=value composerEvents=true}}`,
+    beforeEach() {
+      this.set("value", "");
+      this.siteSettings.enable_rich_text_paste = true;
+    },
+
+    async test(assert) {
+      let element = query(".d-editor");
+      await paste(element, '\ta\tb\n1\t"2\n2.5"\t3');
+      assert.equal(this.value, "||a|b|\n|---|---|---|\n|1|2<br>2.5|3|\n");
     },
   });
 

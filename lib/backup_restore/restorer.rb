@@ -9,7 +9,7 @@ module BackupRestore
 
     attr_reader :success
 
-    def initialize(user_id:, filename:, factory:, disable_emails: true)
+    def initialize(user_id:, filename:, factory:, disable_emails: true, location: nil)
       @user_id = user_id
       @filename = filename
       @factory = factory
@@ -24,7 +24,7 @@ module BackupRestore
       @current_db = RailsMultisite::ConnectionManagement.current_db
 
       @system = factory.create_system_interface
-      @backup_file_handler = factory.create_backup_file_handler(@filename, @current_db)
+      @backup_file_handler = factory.create_backup_file_handler(@filename, @current_db, location)
       @database_restorer = factory.create_database_restorer(@current_db)
       @uploads_restorer = factory.create_uploads_restorer
     end
@@ -52,16 +52,16 @@ module BackupRestore
 
       reload_site_settings
 
-      @system.unpause_sidekiq
       @system.disable_readonly_mode
 
       clear_category_cache
-      clear_emoji_cache
-      clear_theme_cache
       clear_stats
       reload_translations
 
       @uploads_restorer.restore(@tmp_directory)
+
+      clear_emoji_cache
+      clear_theme_cache
 
       after_restore_hook
     rescue Compression::Strategy::ExtractFailed
@@ -134,6 +134,8 @@ module BackupRestore
     def clear_emoji_cache
       log "Clearing emoji cache..."
       Emoji.clear_cache
+    rescue => ex
+      log "Something went wrong while clearing emoji cache.", ex
     end
 
     def reload_translations
@@ -146,10 +148,8 @@ module BackupRestore
         log "Notifying '#{user.username}' of the end of the restore..."
         status = @success ? :restore_succeeded : :restore_failed
 
-        SystemMessage.create_from_system_user(
-          user, status,
-          logs: Discourse::Utils.pretty_logs(@logger.logs)
-        )
+        logs = Discourse::Utils.logs_markdown(@logger.logs, user: user)
+        post = SystemMessage.create_from_system_user(user, status, logs: logs)
       else
         log "Could not send notification to '#{@user_info[:username]}' " \
           "(#{@user_info[:email]}), because the user does not exist."
@@ -172,6 +172,8 @@ module BackupRestore
       ThemeField.force_recompilation!
       Theme.expire_site_cache!
       Stylesheet::Manager.cache.clear
+    rescue => ex
+      log "Something went wrong while clearing theme cache.", ex
     end
 
     def clear_stats

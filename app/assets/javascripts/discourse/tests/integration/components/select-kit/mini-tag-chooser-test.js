@@ -6,6 +6,7 @@ import {
   queryAll,
 } from "discourse/tests/helpers/qunit-helpers";
 import I18n from "I18n";
+import hbs from "htmlbars-inline-precompile";
 import selectKit from "discourse/tests/helpers/select-kit-helper";
 
 discourseModule(
@@ -18,7 +19,7 @@ discourseModule(
     });
 
     componentTest("displays tags", {
-      template: `{{mini-tag-chooser value=value}}`,
+      template: hbs`{{mini-tag-chooser value=value}}`,
 
       beforeEach() {
         this.set("value", ["foo", "bar"]);
@@ -30,7 +31,7 @@ discourseModule(
     });
 
     componentTest("create a tag", {
-      template: `{{mini-tag-chooser value=value}}`,
+      template: hbs`{{mini-tag-chooser value=value}}`,
 
       beforeEach() {
         this.set("value", ["foo", "bar"]);
@@ -44,14 +45,14 @@ discourseModule(
         assert.equal(queryAll(".select-kit-row").text().trim(), "monkey x1");
         await this.subject.fillInFilter("key");
         assert.equal(queryAll(".select-kit-row").text().trim(), "monkey x1");
-        await this.subject.keyboard("enter");
+        await this.subject.keyboard("Enter");
 
         assert.equal(this.subject.header().value(), "foo,bar,monkey");
       },
     });
 
     componentTest("max_tags_per_topic", {
-      template: `{{mini-tag-chooser value=value}}`,
+      template: hbs`{{mini-tag-chooser value=value}}`,
 
       beforeEach() {
         this.set("value", ["foo", "bar"]);
@@ -63,7 +64,7 @@ discourseModule(
 
         await this.subject.expand();
         await this.subject.fillInFilter("baz");
-        await this.subject.keyboard("enter");
+        await this.subject.keyboard("Enter");
 
         const error = queryAll(".select-kit-error").text();
         assert.equal(

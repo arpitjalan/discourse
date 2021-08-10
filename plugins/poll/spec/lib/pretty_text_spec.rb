@@ -165,7 +165,7 @@ describe PrettyText do
     MD
 
     expect(cooked).to include(<<~HTML)
-      <div class="poll-title">What’s your favorite <em>berry</em>? <img src="/images/emoji/twitter/wink.png?v=9" title=":wink:" class="emoji" alt=":wink:"> <a href="https://google.com/" rel="noopener nofollow ugc">https://google.com/</a>
+      <div class="poll-title">What’s your favorite <em>berry</em>? <img src="/images/emoji/twitter/wink.png?v=#{Emoji::EMOJI_VERSION}" title=":wink:" class="emoji" alt=":wink:"> <a href="https://google.com/" rel="noopener nofollow ugc">https://google.com/</a>
       </div>
     HTML
   end
@@ -185,12 +185,12 @@ describe PrettyText do
     MD
 
     expect(cooked).to include(<<~HTML)
-      <div class="poll-title">What’s your favorite <em>berry</em>? <img src="/images/emoji/twitter/wink.png?v=9" title=":wink:" class="emoji" alt=":wink:"> <a href="https://google.com/" rel="noopener nofollow ugc">https://google.com/</a>
+      <div class="poll-title">What’s your favorite <em>berry</em>? <img src="/images/emoji/twitter/wink.png?v=#{Emoji::EMOJI_VERSION}" title=":wink:" class="emoji" alt=":wink:"> <a href="https://google.com/" rel="noopener nofollow ugc">https://google.com/</a>
       </div>
     HTML
 
-    expect(cooked).to include("<h1>Pre-heading</h1>")
-    expect(cooked).to include("<h1>Post-heading</h1>")
+    expect(cooked).to include("<h1>\n<a name=\"pre-heading-1\" class=\"anchor\" href=\"#pre-heading-1\"></a>Pre-heading</h1>")
+    expect(cooked).to include("<h1>\n<a name=\"post-heading-2\" class=\"anchor\" href=\"#post-heading-2\"></a>Post-heading</h1>")
   end
 
   it "does not break when there are headings before/after a poll without a title" do
@@ -211,7 +211,7 @@ describe PrettyText do
       <div class="poll" data-poll-status="open" data-poll-name="poll">
     HTML
 
-    expect(cooked).to include("<h1>Pre-heading</h1>")
-    expect(cooked).to include("<h1>Post-heading</h1>")
+    expect(cooked).to include("<h1>\n<a name=\"pre-heading-1\" class=\"anchor\" href=\"#pre-heading-1\"></a>Pre-heading</h1>")
+    expect(cooked).to include("<h1>\n<a name=\"post-heading-2\" class=\"anchor\" href=\"#post-heading-2\"></a>Post-heading</h1>")
   end
 end

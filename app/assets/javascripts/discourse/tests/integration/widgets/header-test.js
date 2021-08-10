@@ -1,38 +1,41 @@
 import componentTest, {
   setupRenderingTest,
 } from "discourse/tests/helpers/component-test";
-import {
-  discourseModule,
-  exists,
-  queryAll,
-} from "discourse/tests/helpers/qunit-helpers";
+import { discourseModule, exists } from "discourse/tests/helpers/qunit-helpers";
 import { click } from "@ember/test-helpers";
+import hbs from "htmlbars-inline-precompile";
 
 discourseModule("Integration | Component | Widget | header", function (hooks) {
   setupRenderingTest(hooks);
 
   componentTest("rendering basics", {
-    template: '{{mount-widget widget="header"}}',
+    template: hbs`{{mount-widget widget="header"}}`,
     test(assert) {
-      assert.ok(queryAll("header.d-header").length);
-      assert.ok(queryAll("#site-logo").length);
+      assert.ok(exists("header.d-header"));
+      assert.ok(exists("#site-logo"));
     },
   });
 
   componentTest("sign up / login buttons", {
-    template:
-      '{{mount-widget widget="header" showCreateAccount=(action "showCreateAccount") showLogin=(action "showLogin") args=args}}',
+    template: hbs`
+      {{mount-widget
+        widget="header"
+        showCreateAccount=showCreateAccount
+        showLogin=showLogin
+        args=args
+      }}
+    `,
     anonymous: true,
 
     beforeEach() {
       this.set("args", { canSignUp: true });
-      this.on("showCreateAccount", () => (this.signupShown = true));
-      this.on("showLogin", () => (this.loginShown = true));
+      this.set("showCreateAccount", () => (this.signupShown = true));
+      this.set("showLogin", () => (this.loginShown = true));
     },
 
     async test(assert) {
-      assert.ok(queryAll("button.sign-up-button").length);
-      assert.ok(queryAll("button.login-button").length);
+      assert.ok(exists("button.sign-up-button"));
+      assert.ok(exists("button.login-button"));
 
       await click("button.sign-up-button");
       assert.ok(this.signupShown);
@@ -43,14 +46,20 @@ discourseModule("Integration | Component | Widget | header", function (hooks) {
   });
 
   componentTest("anon when login required", {
-    template:
-      '{{mount-widget widget="header" showCreateAccount=(action "showCreateAccount") showLogin=(action "showLogin") args=args}}',
+    template: hbs`
+      {{mount-widget
+        widget="header"
+        showCreateAccount=showCreateAccount
+        showLogin=showLogin
+        args=args
+      }}
+    `,
     anonymous: true,
 
     beforeEach() {
       this.set("args", { canSignUp: true });
-      this.on("showCreateAccount", () => (this.signupShown = true));
-      this.on("showLogin", () => (this.loginShown = true));
+      this.set("showCreateAccount", () => (this.signupShown = true));
+      this.set("showLogin", () => (this.loginShown = true));
       this.siteSettings.login_required = true;
     },
 
@@ -63,13 +72,19 @@ discourseModule("Integration | Component | Widget | header", function (hooks) {
   });
 
   componentTest("logged in when login required", {
-    template:
-      '{{mount-widget widget="header" showCreateAccount=(action "showCreateAccount") showLogin=(action "showLogin") args=args}}',
+    template: hbs`
+      {{mount-widget
+        widget="header"
+        showCreateAccount=showCreateAccount
+        showLogin=showLogin
+        args=args
+      }}
+    `,
 
     beforeEach() {
       this.set("args", { canSignUp: true });
-      this.on("showCreateAccount", () => (this.signupShown = true));
-      this.on("showLogin", () => (this.loginShown = true));
+      this.set("showCreateAccount", () => (this.signupShown = true));
+      this.set("showLogin", () => (this.loginShown = true));
       this.siteSettings.login_required = true;
     },
 

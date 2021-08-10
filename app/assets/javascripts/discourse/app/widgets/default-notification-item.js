@@ -14,6 +14,7 @@ import { h } from "virtual-dom";
 import { iconNode } from "discourse-common/lib/icon-library";
 import { isEmpty } from "@ember/utils";
 import { wantsNewWindow } from "discourse/lib/intercept-click";
+import cookie from "discourse/lib/cookie";
 
 export const DefaultNotificationItem = createWidget(
   "default-notification-item",
@@ -27,6 +28,12 @@ export const DefaultNotificationItem = createWidget(
       }
       if (attrs.is_warning) {
         classNames.push("is-warning");
+      }
+      const notificationType = attrs.notification_type;
+      const lookup = this.site.get("notificationLookup");
+      const notificationName = lookup[notificationType];
+      if (notificationName) {
+        classNames.push(notificationName.replaceAll("_", "-"));
       }
       return classNames;
     },
@@ -147,30 +154,22 @@ export const DefaultNotificationItem = createWidget(
       this.attrs.set("read", true);
       const id = this.attrs.id;
       setTransientHeader("Discourse-Clear-Notifications", id);
-      if (document && document.cookie) {
-        document.cookie = `cn=${id}; path=${getURL(
-          "/"
-        )}; expires=Fri, 31 Dec 9999 23:59:59 GMT`;
-      }
+      cookie("cn", id, { path: getURL("/") });
+
       if (wantsNewWindow(e)) {
         return;
       }
       e.preventDefault();
 
       this.sendWidgetEvent("linkClicked");
-      DiscourseURL.routeTo(this.url(this.attrs.data), {
-        afterRouteComplete: () => {
-          if (!this.attrs.data.revision_number) {
-            return;
-          }
-
-          this.appEvents.trigger(
-            "post:show-revision",
-            this.attrs.post_number,
-            this.attrs.data.revision_number
-          );
-        },
-      });
+      if (this.attrs.data.revision_number) {
+        this.appEvents.trigger("edit-notification:clicked", {
+          topicId: this.attrs.topic_id,
+          postNumber: this.attrs.post_number,
+          revisionNumber: this.attrs.data.revision_number,
+        });
+      }
+      DiscourseURL.routeTo(this.url(this.attrs.data));
     },
 
     mouseUp(event) {

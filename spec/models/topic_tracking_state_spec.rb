@@ -205,8 +205,8 @@ describe TopicTrackingState do
 
         expect(messages.map(&:channel)).to contain_exactly(
           '/private-messages/inbox',
-          "/private-messages/group/#{group1.name}",
-          "/private-messages/group/#{group2.name}"
+          "/private-messages/group/#{group1.name}/inbox",
+          "/private-messages/group/#{group2.name}/inbox"
         )
 
         message = messages.find do |m|
@@ -218,7 +218,7 @@ describe TopicTrackingState do
 
         [group1, group2].each do |group|
           message = messages.find do |m|
-            m.channel == "/private-messages/group/#{group.name}"
+            m.channel == "/private-messages/group/#{group.name}/inbox"
           end
 
           expect(message.data["topic_id"]).to eq(private_message_topic.id)
@@ -237,9 +237,9 @@ describe TopicTrackingState do
 
           expect(messages.map(&:channel)).to contain_exactly(
             '/private-messages/inbox',
-            "/private-messages/group/#{group1.name}",
+            "/private-messages/group/#{group1.name}/inbox",
             "/private-messages/group/#{group1.name}/archive",
-            "/private-messages/group/#{group2.name}",
+            "/private-messages/group/#{group2.name}/inbox",
             "/private-messages/group/#{group2.name}/archive",
           )
 
@@ -249,11 +249,9 @@ describe TopicTrackingState do
           expect(message.user_ids).to eq(private_message_topic.allowed_users.map(&:id))
 
           [group1, group2].each do |group|
-            group_channel = "/private-messages/group/#{group.name}"
-
             [
-              group_channel,
-              "#{group_channel}/archive"
+              "/private-messages/group/#{group.name}/inbox",
+              "/private-messages/group/#{group.name}/archive"
             ].each do |channel|
               message = messages.find { |m| m.channel == channel }
               expect(message.data["topic_id"]).to eq(private_message_topic.id)
@@ -291,7 +289,7 @@ describe TopicTrackingState do
         expected_channels = [
           '/private-messages/inbox',
           '/private-messages/sent',
-          "/private-messages/group/#{group.name}"
+          "/private-messages/group/#{group.name}/inbox"
         ]
 
         expect(messages.map(&:channel)).to contain_exactly(*expected_channels)
@@ -563,7 +561,7 @@ describe TopicTrackingState do
     end
   end
 
-  it "correctly handles seen categories" do
+  it "correctly handles dismissed topics" do
     freeze_time 1.minute.ago
     user = Fabricate(:user)
     post
@@ -571,6 +569,7 @@ describe TopicTrackingState do
     report = TopicTrackingState.report(user)
     expect(report.length).to eq(1)
 
+    DismissedTopicUser.create!(user_id: user.id, topic_id: post.topic_id, created_at: Time.zone.now)
     CategoryUser.create!(user_id: user.id,
                          notification_level: CategoryUser.notification_levels[:regular],
                          category_id: post.topic.category_id,
@@ -579,12 +578,6 @@ describe TopicTrackingState do
 
     report = TopicTrackingState.report(user)
     expect(report.length).to eq(0)
-
-    unfreeze_time
-    post.topic.touch(:created_at)
-
-    report = TopicTrackingState.report(user)
-    expect(report.length).to eq(1)
   end
 
   it "correctly handles capping" do
@@ -602,7 +595,6 @@ describe TopicTrackingState do
     tracking = {
       notification_level: TopicUser.notification_levels[:tracking],
       last_read_post_number: 1,
-      highest_seen_post_number: 1
     }
 
     TopicUser.change(user.id, post1.topic_id, tracking)
@@ -641,14 +633,6 @@ describe TopicTrackingState do
       expect(row.tags).to contain_exactly("apples", "bananas")
 
       TopicTrackingState.include_tags_in_report = false
-      SiteSetting.show_filter_by_tag = true
-
-      report = TopicTrackingState.report(user)
-      expect(report.length).to eq(1)
-      row = report[0]
-      expect(row.tags).to contain_exactly("apples", "bananas")
-
-      SiteSetting.show_filter_by_tag = false
 
       report = TopicTrackingState.report(user)
       expect(report.length).to eq(1)

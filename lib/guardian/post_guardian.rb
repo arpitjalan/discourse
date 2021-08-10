@@ -130,19 +130,20 @@ module PostGuardian
         SiteSetting.trusted_users_can_edit_others? &&
         @user.has_trust_level?(TrustLevel[4])
       ) ||
-      is_category_group_moderator?(post.topic.category)
+      is_category_group_moderator?(post.topic&.category)
     )
 
     if post.topic&.archived? || post.user_deleted || post.deleted_at
       return false
     end
 
+    # Editing a shared draft.
     return true if (
       can_see_post?(post) &&
       can_create_post?(post.topic) &&
       post.topic.category_id == SiteSetting.shared_drafts_category.to_i &&
       can_see_category?(post.topic.category) &&
-      can_create_shared_draft?
+      can_see_shared_draft?
     )
 
     if post.wiki && (@user.trust_level >= SiteSetting.min_trust_to_edit_wiki_post.to_i)
@@ -162,6 +163,10 @@ module PostGuardian
                         post.hidden_at >= SiteSetting.cooldown_minutes_after_hiding_posts.minutes.ago
 
         # If it's your own post and it's hidden, you can still edit it
+        return true
+      end
+
+      if post.is_first_post? && post.topic.category_allows_unlimited_owner_edits_on_first_post?
         return true
       end
 
@@ -185,8 +190,7 @@ module PostGuardian
     # Can't delete the first post
     return false if post.is_first_post?
 
-    can_moderate = can_moderate_topic?(post.topic)
-    return true if can_moderate
+    return true if is_staff? || is_category_group_moderator?(post.topic&.category)
 
     # Can't delete posts in archived topics unless you are staff
     return false if post.topic&.archived?
@@ -229,9 +233,9 @@ module PostGuardian
     return true if is_admin?
     return false unless can_see_topic?(post.topic)
     return false unless post.user == @user || Topic.visible_post_types(@user).include?(post.post_type)
-    return false if !(is_moderator? || is_category_group_moderator?(post.topic.category)) && post.deleted_at.present?
-
-    true
+    return true if is_moderator? || is_category_group_moderator?(post.topic.category)
+    return true if post.deleted_at.blank? || (post.deleted_by_id == @user.id && @user.has_trust_level?(TrustLevel[4]))
+    false
   end
 
   def can_view_edit_history?(post)
@@ -247,7 +251,9 @@ module PostGuardian
   end
 
   def can_change_post_owner?
-    is_admin?
+    return true if is_admin?
+
+    SiteSetting.moderators_change_post_ownership && is_staff?
   end
 
   def can_change_post_timestamps?

@@ -1,11 +1,12 @@
 import PrettyText, { buildOptions } from "pretty-text/pretty-text";
+import { module, test } from "qunit";
 
 module("lib:details-cooked-test");
 
 const defaultOpts = buildOptions({
   siteSettings: {
     enable_emoji: true,
-    emoji_set: "emoji_one",
+    emoji_set: "google_classic",
     highlighted_languages: "json|ruby|javascript",
     default_code_lang: "auto",
   },

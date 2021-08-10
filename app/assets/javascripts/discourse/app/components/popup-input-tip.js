@@ -5,12 +5,20 @@ import { iconHTML } from "discourse-common/lib/icon-library";
 
 export default Component.extend({
   classNameBindings: [":popup-tip", "good", "bad", "lastShownAt::hide"],
+  attributeBindings: ["role"],
   animateAttribute: null,
   bouncePixels: 6,
   bounceDelay: 100,
   rerenderTriggers: ["validation.reason"],
   closeIcon: `${iconHTML("times-circle")}`.htmlSafe(),
   tipReason: null,
+
+  @discourseComputed("bad")
+  role(bad) {
+    if (bad) {
+      return "alert";
+    }
+  },
 
   click() {
     this.set("shownAt", null);
@@ -28,7 +36,7 @@ export default Component.extend({
   @observes("lastShownAt")
   bounce() {
     if (this.lastShownAt) {
-      var $elem = $(this.element);
+      let $elem = $(this.element);
       if (!this.animateAttribute) {
         this.animateAttribute = $elem.css("left") === "auto" ? "right" : "left";
       }
@@ -51,7 +59,7 @@ export default Component.extend({
   },
 
   bounceLeft($elem) {
-    for (var i = 0; i < 5; i++) {
+    for (let i = 0; i < 5; i++) {
       $elem
         .animate({ left: "+=" + this.bouncePixels }, this.bounceDelay)
         .animate({ left: "-=" + this.bouncePixels }, this.bounceDelay);
@@ -59,7 +67,7 @@ export default Component.extend({
   },
 
   bounceRight($elem) {
-    for (var i = 0; i < 5; i++) {
+    for (let i = 0; i < 5; i++) {
       $elem
         .animate({ right: "-=" + this.bouncePixels }, this.bounceDelay)
         .animate({ right: "+=" + this.bouncePixels }, this.bounceDelay);

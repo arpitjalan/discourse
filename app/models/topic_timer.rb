@@ -1,6 +1,12 @@
 # frozen_string_literal: true
 
 class TopicTimer < ActiveRecord::Base
+  MAX_DURATION_MINUTES = 20.years.to_i / 60
+
+  self.ignored_columns = [
+    "duration" # TODO(2021-06-01): remove
+  ]
+
   include Trashable
 
   belongs_to :user
@@ -16,6 +22,7 @@ class TopicTimer < ActiveRecord::Base
   validates :category_id, presence: true, if: :publishing_to_category?
 
   validate :executed_at_in_future?
+  validate :duration_in_range?
 
   scope :scheduled_bump_topics, -> { where(status_type: TopicTimer.types[:bump], deleted_at: nil).pluck(:topic_id) }
   scope :pending_timers, ->(before_time = Time.now.utc) do
@@ -29,10 +36,6 @@ class TopicTimer < ActiveRecord::Base
     if (will_save_change_to_execute_at? &&
        !attribute_in_database(:execute_at).nil?) ||
        will_save_change_to_user_id?
-
-      # TODO(martin - 2021-05-01) - Remove this backwards compatability for outstanding
-      # jobs once they have all been run and after Jobs::TopicTimerEnqueuer is in place
-      self.send("cancel_auto_#{self.class.types[status_type]}_job")
     end
   end
 
@@ -60,22 +63,7 @@ class TopicTimer < ActiveRecord::Base
   end
 
   def enqueue_typed_job(time: nil)
-    return if typed_job_scheduled?
     self.send("schedule_auto_#{status_type_name}_job")
-  end
-
-  # TODO(martin - 2021-05-01) - Remove this backwards compatability for outstanding
-  # jobs once they have all been run and after Jobs::TopicTimerEnqueuer is in place
-  def typed_job_scheduled?
-    scheduled = Jobs.scheduled_for(
-      TopicTimer.type_job_map[status_type_name], topic_timer_id: id
-    ).any?
-
-    if [:close, :silent_close, :open].include?(status_type_name)
-      return scheduled || Jobs.scheduled_for(:toggle_topic_closed, topic_timer_id: id).any?
-    end
-
-    scheduled
   end
 
   def self.type_job_map
@@ -130,6 +118,22 @@ class TopicTimer < ActiveRecord::Base
 
   private
 
+  def duration_in_range?
+    return if duration_minutes.blank?
+
+    if duration_minutes.to_i <= 0
+      errors.add(:duration_minutes, I18n.t(
+        'activerecord.errors.models.topic_timer.attributes.duration_minutes.cannot_be_zero'
+      ))
+    end
+
+    if duration_minutes.to_i > MAX_DURATION_MINUTES
+      errors.add(:duration_minutes, I18n.t(
+        'activerecord.errors.models.topic_timer.attributes.duration_minutes.exceeds_maximum'
+      ))
+    end
+  end
+
   def executed_at_in_future?
     return if created_at.blank? || (execute_at > created_at)
 
@@ -140,48 +144,6 @@ class TopicTimer < ActiveRecord::Base
 
   def publishing_to_category?
     self.status_type.to_i == TopicTimer.types[:publish_to_category]
-  end
-
-  # TODO(martin - 2021-05-01) - Remove cancels for toggle_topic_closed once topic timer revamp completed.
-  def cancel_auto_close_job
-    Jobs.cancel_scheduled_job(:toggle_topic_closed, topic_timer_id: id)
-    Jobs.cancel_scheduled_job(:close_topic, topic_timer_id: id)
-  end
-
-  # TODO(martin - 2021-05-01) - Remove cancels for toggle_topic_closed once topic timer revamp completed.
-  def cancel_auto_open_job
-    Jobs.cancel_scheduled_job(:toggle_topic_closed, topic_timer_id: id)
-    Jobs.cancel_scheduled_job(:open_topic, topic_timer_id: id)
-  end
-
-  # TODO(martin - 2021-05-01) - Remove cancels for toggle_topic_closed once topic timer revamp completed.
-  def cancel_auto_silent_close_job
-    Jobs.cancel_scheduled_job(:toggle_topic_closed, topic_timer_id: id)
-    Jobs.cancel_scheduled_job(:close_topic, topic_timer_id: id)
-  end
-
-  def cancel_auto_publish_to_category_job
-    Jobs.cancel_scheduled_job(TopicTimer.type_job_map[:publish_to_category], topic_timer_id: id)
-  end
-
-  def cancel_auto_delete_job
-    Jobs.cancel_scheduled_job(TopicTimer.type_job_map[:delete], topic_timer_id: id)
-  end
-
-  def cancel_auto_reminder_job
-    Jobs.cancel_scheduled_job(TopicTimer.type_job_map[:reminder], topic_timer_id: id)
-  end
-
-  def cancel_auto_bump_job
-    Jobs.cancel_scheduled_job(TopicTimer.type_job_map[:bump], topic_timer_id: id)
-  end
-
-  def cancel_auto_delete_replies_job
-    Jobs.cancel_scheduled_job(TopicTimer.type_job_map[:delete_replies], topic_timer_id: id)
-  end
-
-  def cancel_auto_clear_slow_mode_job
-    Jobs.cancel_scheduled_job(TopicTimer.type_job_map[:clear_slow_mode], topic_timer_id: id)
   end
 
   def schedule_auto_delete_replies_job
@@ -212,10 +174,6 @@ class TopicTimer < ActiveRecord::Base
     Jobs.enqueue(TopicTimer.type_job_map[:delete], topic_timer_id: id)
   end
 
-  def schedule_auto_reminder_job
-    # noop, TODO(martin 2021-03-11): Remove this after timers migrated and outstanding jobs cancelled
-  end
-
   def schedule_auto_clear_slow_mode_job
     Jobs.enqueue(TopicTimer.type_job_map[:clear_slow_mode], topic_timer_id: id)
   end
@@ -237,7 +195,7 @@ end
 #  updated_at         :datetime         not null
 #  category_id        :integer
 #  public_type        :boolean          default(TRUE)
-#  duration           :integer
+#  duration_minutes   :integer
 #
 # Indexes
 #

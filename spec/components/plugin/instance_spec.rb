@@ -11,7 +11,7 @@ describe Plugin::Instance do
   context "find_all" do
     it "can find plugins correctly" do
       plugins = Plugin::Instance.find_all("#{Rails.root}/spec/fixtures/plugins")
-      expect(plugins.count).to eq(4)
+      expect(plugins.count).to eq(5)
       plugin = plugins[3]
 
       expect(plugin.name).to eq("plugin-name")
@@ -258,9 +258,6 @@ describe Plugin::Instance do
       plugin.register_asset("desktop.css", :desktop)
       plugin.register_asset("desktop2.css", :desktop)
 
-      plugin.register_asset("variables1.scss", :variables)
-      plugin.register_asset("variables2.scss", :variables)
-
       plugin.register_asset("code.js")
 
       plugin.register_asset("my_admin.js", :admin)
@@ -271,7 +268,6 @@ describe Plugin::Instance do
       expect(DiscoursePluginRegistry.javascripts.count).to eq(2)
       expect(DiscoursePluginRegistry.admin_javascripts.count).to eq(2)
       expect(DiscoursePluginRegistry.desktop_stylesheets[plugin.directory_name].count).to eq(2)
-      expect(DiscoursePluginRegistry.sass_variables.count).to eq(2)
       expect(DiscoursePluginRegistry.stylesheets[plugin.directory_name].count).to eq(2)
       expect(DiscoursePluginRegistry.mobile_stylesheets[plugin.directory_name].count).to eq(1)
     end
@@ -591,6 +587,85 @@ describe Plugin::Instance do
       expect(PostActionType.flag_settings.flag_types.values.max).to eq(highest_flag_id + 1)
       expect(ReviewableScore.types.keys).to include(new_score_type)
       expect(ReviewableScore.types.values.max).to eq(highest_flag_id + 2)
+    end
+  end
+
+  describe '#add_api_key_scope' do
+    after { DiscoursePluginRegistry.reset! }
+
+    it 'adds a custom api key scope' do
+      actions = %w[admin/groups#create]
+      subject.add_api_key_scope(:groups, create: { actions: actions })
+
+      expect(ApiKeyScope.scope_mappings.dig(:groups, :create, :actions)).to contain_exactly(*actions)
+    end
+  end
+
+  describe '#add_directory_column' do
+    let!(:plugin) { Plugin::Instance.new }
+
+    before do
+      DirectoryItem.clear_plugin_queries
+    end
+
+    after do
+      DirectoryColumn.clear_plugin_directory_columns
+    end
+
+    describe "with valid column name" do
+      let(:column_name) { "random_c" }
+
+      before do
+        DB.exec("ALTER TABLE directory_items ADD COLUMN IF NOT EXISTS #{column_name} integer")
+      end
+
+      after do
+        DB.exec("ALTER TABLE directory_items DROP COLUMN IF EXISTS #{column_name}")
+        DiscourseEvent.all_off("before_directory_refresh")
+      end
+
+      it 'creates a directory column record when directory items are refreshed' do
+        plugin.add_directory_column(column_name, query: "SELECT COUNT(*) FROM users", icon: 'recycle')
+        expect(DirectoryColumn.find_by(name: column_name, icon: 'recycle', enabled: false)).not_to be_present
+
+        DirectoryItem.refresh!
+        expect(DirectoryColumn.find_by(name: column_name, icon: 'recycle', enabled: false)).to be_present
+      end
+    end
+
+    it 'errors when the column_name contains invalid characters' do
+      expect {
+        plugin.add_directory_column('Capital', query: "SELECT COUNT(*) FROM users", icon: 'recycle')
+      }.to raise_error(RuntimeError)
+
+      expect {
+        plugin.add_directory_column('has space', query: "SELECT COUNT(*) FROM users", icon: 'recycle')
+      }.to raise_error(RuntimeError)
+
+      expect {
+        plugin.add_directory_column('has_number_1', query: "SELECT COUNT(*) FROM users", icon: 'recycle')
+      }.to raise_error(RuntimeError)
+    end
+  end
+
+  describe '#register_site_categories_callback' do
+    fab!(:category) { Fabricate(:category) }
+
+    it 'adds a callback to the Site#categories' do
+      instance = Plugin::Instance.new
+
+      instance.register_site_categories_callback do |categories|
+        categories.each do |category|
+          category[:test_field] = "test"
+        end
+      end
+
+      site = Site.new(Guardian.new)
+
+      expect(site.categories.first[:test_field]).to eq("test")
+    ensure
+      Site.clear_cache
+      Site.categories_callbacks.clear
     end
   end
 end

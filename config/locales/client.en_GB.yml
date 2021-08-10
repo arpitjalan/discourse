@@ -52,6 +52,8 @@ en_GB:
         instructions: "Profile headers will be centred and have a default width of 1110px."
       change_card_background:
         instructions: "Background images will be centred and have a default width of 590px."
+      summary:
+        title: "Summary"
     read_only_mode:
       login_disabled: "Login is disabled whilst the site is in read only mode."
       logout_disabled: "Logout is disabled whilst the site is in read only mode."
@@ -91,7 +93,6 @@ en_GB:
         scopes:
           descriptions:
             users:
-              sync_sso: Synchronise a user using SSO.
               anonymize: Anonymise user accounts.
       backups:
         upload:
@@ -112,17 +113,6 @@ en_GB:
           color_definitions:
             text: "Colour Definitions"
             title: "Enter custom colour definitions (advanced users only)"
-            placeholder: |2-
-
-              Use this stylesheet to add custom colours to the list of CSS custom properties.
-
-              Example:
-
-              :root {
-              --mytheme-tertiary-or-quaternary: #{dark-light-choose($tertiary, $quaternary)};
-              }
-
-              Prefixing the property names is highly recommended to avoid conflicts with plugins and/or core.
         colors:
           select_base:
             title: "Select base colour palette"

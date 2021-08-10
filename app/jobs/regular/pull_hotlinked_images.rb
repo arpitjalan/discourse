@@ -15,6 +15,7 @@ module Jobs
 
       post = Post.find_by(id: @post_id)
       return if post.blank?
+      return if post.topic.blank?
 
       raw = post.raw.dup
       start_raw = raw.dup
@@ -97,6 +98,10 @@ module Jobs
 
       begin
         retries ||= 3
+
+        if SiteSetting.verbose_upload_logging
+          Rails.logger.warn("Verbose Upload Logging: Downloading hotlinked image from #{src}")
+        end
 
         downloaded = FileHelper.download(
           src,
@@ -193,6 +198,7 @@ module Jobs
       local_bases = [
         Discourse.base_url,
         Discourse.asset_host,
+        SiteSetting.external_emoji_url.presence
       ].compact.map { |s| normalize_src(s) }
 
       if Discourse.store.has_been_uploaded?(src) || normalize_src(src).start_with?(*local_bases) || src =~ /\A\/[^\/]/i

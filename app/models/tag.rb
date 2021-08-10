@@ -95,7 +95,9 @@ class Tag < ActiveRecord::Base
   end
 
   def self.top_tags(limit_arg: nil, category: nil, guardian: nil)
-    limit = limit_arg || SiteSetting.max_tags_in_filter_list
+    # we add 1 to max_tags_in_filter_list to efficiently know we have more tags
+    # than the limit. Frontend is responsible to enforce limit.
+    limit = limit_arg || (SiteSetting.max_tags_in_filter_list + 1)
     scope_category_ids = (guardian || Guardian.new).allowed_category_ids
 
     if category
@@ -134,21 +136,25 @@ class Tag < ActiveRecord::Base
        WHERE topic_tags.topic_id IN (
           SELECT topic_id
             FROM topic_allowed_users
-           WHERE user_id = #{user_id}
+           WHERE user_id = #{user_id.to_i}
            UNION
           SELECT tg.topic_id
             FROM topic_allowed_groups tg
-            JOIN group_users gu ON gu.user_id = #{user_id}
+            JOIN group_users gu ON gu.user_id = #{user_id.to_i}
                                AND gu.group_id = tg.group_id
        )
        GROUP BY tags.name
        ORDER BY count DESC
-       LIMIT #{limit}
+       LIMIT #{limit.to_i}
     SQL
   end
 
   def self.include_tags?
-    SiteSetting.tagging_enabled && SiteSetting.show_filter_by_tag
+    SiteSetting.tagging_enabled
+  end
+
+  def url
+    "#{Discourse.base_path}/tag/#{UrlHelper.encode_component(self.name)}"
   end
 
   def full_url

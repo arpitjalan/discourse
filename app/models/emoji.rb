@@ -2,7 +2,7 @@
 
 class Emoji
   # update this to clear the cache
-  EMOJI_VERSION = "9"
+  EMOJI_VERSION = "10"
 
   FITZPATRICK_SCALE ||= [ "1f3fb", "1f3fc", "1f3fd", "1f3fe", "1f3ff" ]
 
@@ -73,7 +73,11 @@ class Emoji
 
   def self.url_for(name)
     name = name.delete_prefix(':').delete_suffix(':').gsub(/(.+):t([1-6])/, '\1/\2')
-    "#{Discourse.base_path}/images/emoji/#{SiteSetting.emoji_set}/#{name}.png?v=#{EMOJI_VERSION}"
+    if SiteSetting.external_emoji_url.blank?
+      "#{Discourse.base_path}/images/emoji/#{SiteSetting.emoji_set}/#{name}.png?v=#{EMOJI_VERSION}"
+    else
+      "#{SiteSetting.external_emoji_url}/#{SiteSetting.emoji_set}/#{name}.png?v=#{EMOJI_VERSION}"
+    end
   end
 
   def self.cache_key(name)
@@ -227,4 +231,20 @@ class Emoji
     @unicode_replacements_json ||= unicode_replacements.to_json
   end
 
+  def self.codes_to_img(str)
+    return if str.blank?
+
+    str = str.gsub(/:([\w\-+]*(?::t\d)?):/) do |name|
+      code = $1
+
+      if code && Emoji.custom?(code)
+        emoji = Emoji[code]
+        "<img src=\"#{emoji.url}\" title=\"#{code}\" class=\"emoji\" alt=\"#{code}\">"
+      elsif code && Emoji.exists?(code)
+        "<img src=\"#{Emoji.url_for(code)}\" title=\"#{code}\" class=\"emoji\" alt=\"#{code}\">"
+      else
+        name
+      end
+    end
+  end
 end

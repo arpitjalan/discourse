@@ -177,7 +177,7 @@ NavItem.reopenClass({
       return null;
     }
 
-    var args = { name: filterType, hasIcon: filterType === "unread" };
+    let args = { name: filterType, hasIcon: filterType === "unread" };
     if (opts.category) {
       args.category = opts.category;
     }
@@ -299,6 +299,12 @@ export function extraNavItemProperties(cb) {
 
 export function customNavItemHref(cb) {
   NavItem.customNavItemHrefs.push(cb);
+}
+
+export function clearNavItems() {
+  NavItem.customNavItemHrefs.clear();
+  NavItem.extraArgsCallbacks.clear();
+  NavItem.extraNavItemDescriptors.clear();
 }
 
 export function addNavItem(item) {

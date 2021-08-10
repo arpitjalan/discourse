@@ -11,13 +11,13 @@ describe SiteSettingsTask do
   describe 'export' do
     it 'creates a hash of all site settings' do
       sso_url = "https://somewhere.over.com"
-      SiteSetting.sso_url = sso_url
-      SiteSetting.enable_sso = true
+      SiteSetting.discourse_connect_url = sso_url
+      SiteSetting.enable_discourse_connect = true
       hash = SiteSettingsTask.export_to_hash
 
       expect(hash).to eq(
-        "enable_sso" => "true",
-        "sso_url" => sso_url
+        "enable_discourse_connect" => "true",
+        "discourse_connect_url" => sso_url
       )
     end
   end
@@ -47,7 +47,7 @@ describe SiteSettingsTask do
       expect(counts[:not_found]).to eq 1
     end
 
-    it "will log that an error has occured" do
+    it "will log that an error has occurred" do
       yml = "min_password_length: 0"
       log, counts = SiteSettingsTask.import(yml)
       expect(log[0]).to eq "ERROR: min_password_length: Value must be between 8 and 500."

@@ -52,6 +52,13 @@ class Auth::Result
     @email&.downcase
   end
 
+  def email_valid=(val)
+    if !val.in? [true, false, nil]
+      raise ArgumentError, "email_valid should be boolean or nil"
+    end
+    @email_valid = !!val
+  end
+
   def failed?
     !!@failed
   end
@@ -70,17 +77,17 @@ class Auth::Result
 
   def apply_user_attributes!
     change_made = false
-    if SiteSetting.sso_overrides_username? && username.present? && username != user.username
-      user.username = UserNameSuggester.suggest(username || name || email, user.username)
+    if SiteSetting.auth_overrides_username? && username.present? && username != user.username
+      user.username = UserNameSuggester.suggest(username_suggester_attributes, user.username)
       change_made = true
     end
 
-    if SiteSetting.sso_overrides_email && email_valid && email.present? && user.email != Email.downcase(email)
+    if SiteSetting.auth_overrides_email && email_valid && email.present? && user.email != Email.downcase(email)
       user.email = email
       change_made = true
     end
 
-    if SiteSetting.sso_overrides_name && name.present? && user.name != name
+    if SiteSetting.auth_overrides_name && name.present? && user.name != name
       user.name = name
       change_made = true
     end
@@ -89,11 +96,11 @@ class Auth::Result
   end
 
   def can_edit_name
-    !SiteSetting.sso_overrides_name
+    !SiteSetting.auth_overrides_name
   end
 
   def can_edit_username
-    !(SiteSetting.sso_overrides_username || omit_username)
+    !(SiteSetting.auth_overrides_username || omit_username)
   end
 
   def to_client_hash
@@ -104,8 +111,7 @@ class Auth::Result
     if user&.suspended?
       return {
         suspended: true,
-        suspended_message: I18n.t(user.suspend_reason ? "login.suspended_with_reason" : "login.suspended",
-                                   date: I18n.l(user.suspended_till, format: :date_only), reason: user.suspend_reason)
+        suspended_message: user.suspended_message
       }
     end
 
@@ -130,9 +136,18 @@ class Auth::Result
       return result
     end
 
+    suggested_username = UserNameSuggester.suggest(username_suggester_attributes)
+    if email_valid && email.present?
+      if username.present? && User.username_available?(username, email)
+        suggested_username = username
+      elsif staged_user = User.where(staged: true).find_by_email(email)
+        suggested_username = staged_user.username
+      end
+    end
+
     result = {
       email: email,
-      username: UserNameSuggester.suggest(username || name || email),
+      username: suggested_username,
       auth_provider: authenticator_name,
       email_valid: !!email_valid,
       can_edit_username: can_edit_username,
@@ -147,5 +162,11 @@ class Auth::Result
     end
 
     result
+  end
+
+  private
+
+  def username_suggester_attributes
+    username || name || email
   end
 end

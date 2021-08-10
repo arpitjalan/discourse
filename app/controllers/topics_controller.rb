@@ -128,7 +128,7 @@ class TopicsController < ApplicationController
     end
 
     page = params[:page]
-    if (page < 0) || ((page - 1) * @topic_view.chunk_size > @topic_view.topic.highest_post_number)
+    if (page < 0) || ((page - 1) * @topic_view.chunk_size >= @topic_view.topic.highest_post_number)
       raise Discourse::NotFound
     end
 
@@ -245,11 +245,11 @@ class TopicsController < ApplicationController
     params.require(:topic_id)
     params.require(:post_ids)
 
-    post_ids = params[:post_ids].map(&:to_i)
-    unless Array === post_ids
+    unless Array === params[:post_ids]
       render_json_error("Expecting post_ids to contain a list of posts ids")
       return
     end
+    post_ids = params[:post_ids].map(&:to_i)
 
     if post_ids.length > 100
       render_json_error("Requested a chunk that is too big")
@@ -372,6 +372,11 @@ class TopicsController < ApplicationController
     changes.delete(:title) if topic.title == changes[:title]
     changes.delete(:category_id) if topic.category_id.to_i == changes[:category_id].to_i
 
+    if Tag.include_tags?
+      topic_tags = topic.tags.map(&:name).sort
+      changes.delete(:tags) if changes[:tags]&.sort == topic_tags
+    end
+
     success = true
 
     if changes.length > 0
@@ -429,9 +434,13 @@ class TopicsController < ApplicationController
       guardian.ensure_can_archive_topic!(@topic)
     when 'visible'
       guardian.ensure_can_toggle_topic_visibility!(@topic)
+    when 'pinned'
+      guardian.ensure_can_pin_unpin_topic!(@topic)
     else
       guardian.ensure_can_moderate!(@topic)
     end
+
+    params[:until] === '' ? params[:until] = nil : params[:until]
 
     @topic.update_status(status, enabled, current_user, until: params[:until])
 
@@ -461,7 +470,7 @@ class TopicsController < ApplicationController
         invalid_param(:status_type)
       end
     based_on_last_post = params[:based_on_last_post]
-    params.require(:duration) if based_on_last_post
+    params.require(:duration_minutes) if based_on_last_post
 
     topic = Topic.find_by(id: params[:topic_id])
     guardian.ensure_can_moderate!(topic)
@@ -472,21 +481,26 @@ class TopicsController < ApplicationController
     }
 
     options.merge!(category_id: params[:category_id]) if !params[:category_id].blank?
+    options.merge!(duration_minutes: params[:duration_minutes].to_i) if params[:duration_minutes].present?
     options.merge!(duration: params[:duration].to_i) if params[:duration].present?
 
-    topic_status_update = topic.set_or_create_timer(
-      status_type,
-      params[:time],
-      **options
-    )
+    begin
+      topic_timer = topic.set_or_create_timer(
+        status_type,
+        params[:time],
+        **options
+      )
+    rescue ActiveRecord::RecordInvalid => e
+      return render_json_error(e.message)
+    end
 
     if topic.save
       render json: success_json.merge!(
-        execute_at: topic_status_update&.execute_at,
-        duration: topic_status_update&.duration,
-        based_on_last_post: topic_status_update&.based_on_last_post,
+        execute_at: topic_timer&.execute_at,
+        duration_minutes: topic_timer&.duration_minutes,
+        based_on_last_post: topic_timer&.based_on_last_post,
         closed: topic.closed,
-        category_id: topic_status_update&.category_id
+        category_id: topic_timer&.category_id
       )
     else
       render_json_error(topic)
@@ -626,6 +640,39 @@ class TopicsController < ApplicationController
     else
       render json: failed_json, status: 422
     end
+  end
+
+  def invite_notify
+    topic = Topic.find_by(id: params[:topic_id])
+    guardian.ensure_can_see!(topic)
+
+    usernames = params[:usernames]
+    raise Discourse::InvalidParameters.new(:usernames) if !usernames.kind_of?(Array) || (!current_user.staff? && usernames.size > 1)
+
+    users = User.where(username_lower: usernames.map(&:downcase))
+    raise Discourse::InvalidParameters.new(:usernames) if usernames.size != users.size
+
+    topic.rate_limit_topic_invitation(current_user)
+
+    users.find_each do |user|
+      if !user.guardian.can_see_topic?(topic)
+        return render json: failed_json.merge(error: I18n.t('topic_invite.user_cannot_see_topic', username: user.username)), status: 422
+      end
+    end
+
+    users.find_each do |user|
+      last_notification = user.notifications
+        .where(notification_type: Notification.types[:invited_to_topic])
+        .where(topic_id: topic.id)
+        .where(post_number: 1)
+        .where('created_at > ?', 1.hour.ago)
+
+      if !last_notification.exists?
+        topic.create_invite_notification!(user, Notification.types[:invited_to_topic], current_user.username)
+      end
+    end
+
+    render json: success_json
   end
 
   def invite_group
@@ -847,35 +894,38 @@ class TopicsController < ApplicationController
   def feed
     raise Discourse::NotFound if !Post.exists?(topic_id: params[:topic_id])
 
-    @topic_view = TopicView.new(params[:topic_id])
+    begin
+      @topic_view = TopicView.new(params[:topic_id])
+    rescue Discourse::NotLoggedIn
+      raise Discourse::NotFound
+    rescue Discourse::InvalidAccess => ex
+
+      deleted = guardian.can_see_topic?(ex.obj, false) ||
+        (!guardian.can_see_topic?(ex.obj) &&
+         ex.obj&.access_topic_via_group &&
+         ex.obj.deleted_at)
+
+      raise Discourse::NotFound.new(
+        nil,
+        check_permalinks: deleted,
+        original_path: ex.obj.relative_url
+      )
+    end
+
     discourse_expires_in 1.minute
     render 'topics/show', formats: [:rss]
   end
 
   def bulk
     if params[:topic_ids].present?
+      unless Array === params[:topic_ids]
+        raise Discourse::InvalidParameters.new(
+          "Expecting topic_ids to contain a list of topic ids"
+        )
+      end
       topic_ids = params[:topic_ids].map { |t| t.to_i }
     elsif params[:filter] == 'unread'
-      tq = TopicQuery.new(current_user)
-      topics = TopicQuery.unread_filter(tq.joined_topic_user, current_user.id, staff: guardian.is_staff?).listable_topics
-      topics = TopicQuery.tracked_filter(topics, current_user.id) if params[:tracked].to_s == "true"
-
-      if params[:category_id]
-        if params[:include_subcategories]
-          topics = topics.where(<<~SQL, category_id: params[:category_id])
-            category_id in (select id FROM categories WHERE parent_category_id = :category_id) OR
-            category_id = :category_id
-          SQL
-        else
-          topics = topics.where('category_id = ?', params[:category_id])
-        end
-      end
-
-      if params[:tag_name].present?
-        topics = topics.joins(:tags).where("tags.name": params[:tag_name])
-      end
-
-      topic_ids = topics.pluck(:id)
+      topic_ids = bulk_unread_topic_ids
     else
       raise ActionController::ParameterMissing.new(:topic_ids)
     end
@@ -891,30 +941,72 @@ class TopicsController < ApplicationController
     render_json_dump topic_ids: changed_topic_ids
   end
 
-  def reset_new
-    if params[:category_id].present?
-      category_ids = [params[:category_id]]
-      if params[:include_subcategories] == 'true'
-        category_ids = category_ids.concat(Category.where(parent_category_id: params[:category_id]).pluck(:id))
+  def private_message_reset_new
+    topic_query = TopicQuery.new(current_user)
+
+    if params[:topic_ids].present?
+      unless Array === params[:topic_ids]
+        raise Discourse::InvalidParameters.new(
+          "Expecting topic_ids to contain a list of topic ids"
+        )
       end
-      category_ids.each do |category_id|
-        current_user
-          .category_users
-          .where(category_id: category_id)
-          .first_or_initialize
-          .update!(last_seen_at: Time.zone.now)
-        TopicTrackingState.publish_dismiss_new(current_user.id, category_id)
-      end
+
+      topic_scope = topic_query
+        .private_messages_for(current_user, :all)
+        .where("topics.id IN (?)", params[:topic_ids].map(&:to_i))
     else
-      if params[:tracked].to_s == "true"
-        topics = TopicQuery.tracked_filter(TopicQuery.new(current_user).new_results, current_user.id)
-        topic_users = topics.map { |topic| { topic_id: topic.id, user_id: current_user.id, last_read_post_number: 0 } }
-        TopicUser.insert_all(topic_users) if !topic_users.empty?
-      else
-        current_user.user_stat.update_column(:new_since, Time.zone.now)
-        TopicTrackingState.publish_dismiss_new(current_user.id)
-      end
+      params.require(:inbox)
+      inbox = params[:inbox].to_s
+      filter = private_message_filter(topic_query, inbox)
+      topic_query.options[:limit] = false
+      topic_scope = topic_query.filter_private_message_new(current_user, filter)
     end
+
+    TopicsBulkAction.new(
+      current_user,
+      topic_scope.pluck(:id),
+      type: "dismiss_topics"
+    ).perform!
+
+    render json: success_json
+  end
+
+  def reset_new
+    topic_scope =
+      if params[:category_id].present?
+        category_ids = [params[:category_id]]
+        if params[:include_subcategories] == 'true'
+          category_ids = category_ids.concat(Category.where(parent_category_id: params[:category_id]).pluck(:id))
+        end
+
+        scope = Topic.where(category_id: category_ids)
+        scope = scope.joins(:tags).where(tags: { name: params[:tag_id] }) if params[:tag_id]
+        scope
+      elsif params[:tag_id].present?
+        Topic.joins(:tags).where(tags: { name: params[:tag_id] })
+      else
+        if params[:tracked].to_s == "true"
+          TopicQuery.tracked_filter(TopicQuery.new(current_user).new_results(limit: false), current_user.id)
+        else
+          current_user.user_stat.update_column(:new_since, Time.zone.now)
+          Topic
+        end
+      end
+
+    if params[:topic_ids].present?
+      unless Array === params[:topic_ids]
+        raise Discourse::InvalidParameters.new(
+          "Expecting topic_ids to contain a list of topic ids"
+        )
+      end
+
+      topic_ids = params[:topic_ids].map { |t| t.to_i }
+      topic_scope = topic_scope.where(id: topic_ids)
+    end
+
+    dismissed_topic_ids = TopicsBulkAction.new(current_user, topic_scope.pluck(:id), type: "dismiss_topics").perform!
+    TopicTrackingState.publish_dismiss_new(current_user.id, topic_ids: dismissed_topic_ids)
+
     render body: nil
   end
 
@@ -1135,5 +1227,51 @@ class TopicsController < ApplicationController
 
   def pm_has_slots?(pm)
     guardian.is_staff? || !pm.reached_recipients_limit?
+  end
+
+  def bulk_unread_topic_ids
+    topic_query = TopicQuery.new(current_user)
+
+    if inbox = params[:private_message_inbox]
+      filter = private_message_filter(topic_query, inbox)
+      topic_query.options[:limit] = false
+      topics = topic_query.filter_private_messages_unread(current_user, filter)
+    else
+      topics = TopicQuery.unread_filter(topic_query.joined_topic_user, staff: guardian.is_staff?).listable_topics
+      topics = TopicQuery.tracked_filter(topics, current_user.id) if params[:tracked].to_s == "true"
+
+      if params[:category_id]
+        if params[:include_subcategories]
+          topics = topics.where(<<~SQL, category_id: params[:category_id])
+            category_id in (select id FROM categories WHERE parent_category_id = :category_id) OR
+            category_id = :category_id
+          SQL
+        else
+          topics = topics.where('category_id = ?', params[:category_id])
+        end
+      end
+
+      if params[:tag_name].present?
+        topics = topics.joins(:tags).where("tags.name": params[:tag_name])
+      end
+    end
+
+    topics.pluck(:id)
+  end
+
+  def private_message_filter(topic_query, inbox)
+    case inbox
+    when "group"
+      group_name = params[:group_name]
+      group = Group.find_by("lower(name) = ?", group_name)
+      raise Discourse::NotFound if !group
+      raise Discourse::NotFound if !guardian.can_see_group_messages?(group)
+      topic_query.options[:group_name] = group_name
+      :group
+    when "user"
+      :user
+    else
+      :all
+    end
   end
 end

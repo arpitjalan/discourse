@@ -1,4 +1,8 @@
 .discourse-local-date {
+  > * {
+    pointer-events: none;
+  }
+
   &.cooked-date {
     color: var(--primary);
     cursor: pointer;
@@ -201,7 +205,7 @@
           flex: 1;
           @include ellipsis;
           width: 100%;
-          text-align: left;
+          justify-content: flex-start;
         }
       }
 
@@ -229,15 +233,14 @@
 
         .d-icon {
           color: var(--primary-medium);
+          margin-right: 0.5em;
         }
 
         .time-picker {
-          outline: none;
           box-shadow: none;
           margin: 0;
           box-sizing: border-box;
           width: 100%;
-          border: 0;
         }
       }
     }

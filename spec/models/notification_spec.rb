@@ -298,7 +298,7 @@ describe Notification do
       expect(user.unread_notifications).to eq(0)
       expect(user.total_unread_notifications).to eq(3)
       # NOTE: because of deprecation this will be equal to unread_high_priority_notifications,
-      #       to be remonved in 2.5
+      #       to be removed in 2.5
       expect(user.unread_private_messages).to eq(2)
       expect(user.unread_high_priority_notifications).to eq(2)
     end
@@ -340,6 +340,16 @@ describe Notification do
       Notification.ensure_consistency!
 
       expect(Notification.count).to eq(2)
+    end
+
+    it 'does not delete chat_message notifications' do
+      user = Fabricate(:user)
+      Notification.create!(read: false, user_id: user.id, topic_id: nil, post_number: nil, data: '[]',
+                           notification_type: Notification.types[:chat_mention])
+
+      expect {
+        Notification.ensure_consistency!
+      }.to_not change { Notification.count }
     end
   end
 
@@ -495,7 +505,6 @@ describe Notification do
         expect { notification.reload }.to raise_error(ActiveRecord::RecordNotFound)
 
         notification = Notification.last
-        expect(notification.processed).to eq(true)
         expect(notification.notification_type).to eq(Notification.types[:membership_request_consolidated])
 
         data = notification.data_hash
@@ -516,7 +525,7 @@ describe Notification do
 
         notification = Notification.last
         expect(notification.notification_type).to eq(Notification.types[:membership_request_consolidated])
-        expect(notification.processed).to eq(false)
+        expect(notification.shelved_notification).to be_present
       end
     end
   end
@@ -543,18 +552,18 @@ describe Notification do
     end
   end
 
-  describe "processed" do
+  describe "do not disturb" do
     fab!(:user) { Fabricate(:user) }
 
-    it "is false after creation when the user is in do not disturb" do
+    it "creates a shelved_notification record when created while user is in DND" do
       user.do_not_disturb_timings.create(starts_at: Time.now, ends_at: 3.days.from_now)
       notification = Notification.create(read: false, user_id: user.id, topic_id: 2, post_number: 1, data: '{}', notification_type: 1)
-      expect(notification.processed).to be(false)
+      expect(notification.shelved_notification).to be_present
     end
 
-    it "is true after creation when the user isn't in do not disturb" do
+    it "doesn't create a shelved_notification record when created while user is isn't DND" do
       notification = Notification.create(read: false, user_id: user.id, topic_id: 2, post_number: 1, data: '{}', notification_type: 1)
-      expect(notification.processed).to be(true)
+      expect(notification.shelved_notification).to be_nil
     end
   end
 end

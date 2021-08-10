@@ -3,8 +3,6 @@
 class Users::AssociateAccountsController < ApplicationController
   REDIS_PREFIX ||= "omniauth_reconnect"
 
-  ##
-  # Presents a confirmation screen to the user. Accessed via GET, with no CSRF checks
   def connect_info
     auth = get_auth_hash
 
@@ -17,8 +15,6 @@ class Users::AssociateAccountsController < ApplicationController
     render json: { token: params[:token], provider_name: provider_name, account_description: account_description }
   end
 
-  ##
-  # Presents a confirmation screen to the user. Accessed via GET, with no CSRF checks
   def connect
     auth = get_auth_hash
     Discourse.redis.del "#{REDIS_PREFIX}_#{current_user&.id}_#{params[:token]}"
@@ -27,9 +23,9 @@ class Users::AssociateAccountsController < ApplicationController
     authenticator = Discourse.enabled_authenticators.find { |a| a.name == provider_name }
     raise Discourse::InvalidAccess.new(I18n.t('authenticator_not_found')) if authenticator.nil?
 
-    DiscourseEvent.trigger(:before_auth, authenticator, auth)
+    DiscourseEvent.trigger(:before_auth, authenticator, auth, session, cookies, request)
     auth_result = authenticator.after_authenticate(auth, existing_account: current_user)
-    DiscourseEvent.trigger(:after_auth, authenticator, auth_result)
+    DiscourseEvent.trigger(:after_auth, authenticator, auth_result, session, cookies, request)
 
     render json: success_json
   end

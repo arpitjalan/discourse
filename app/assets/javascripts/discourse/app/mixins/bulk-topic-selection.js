@@ -1,18 +1,29 @@
 import Mixin from "@ember/object/mixin";
+import { or } from "@ember/object/computed";
+import { on } from "discourse-common/utils/decorators";
 import { NotificationLevels } from "discourse/lib/notification-levels";
 import Topic from "discourse/models/topic";
-import { alias } from "@ember/object/computed";
-import { on } from "discourse-common/utils/decorators";
+import { inject as service } from "@ember/service";
 
 export default Mixin.create({
+  router: service(),
+
   bulkSelectEnabled: false,
+  autoAddTopicsToBulkSelect: false,
   selected: null,
 
-  canBulkSelect: alias("currentUser.staff"),
+  canBulkSelect: or("currentUser.staff", "showDismissRead", "showResetNew"),
 
   @on("init")
   resetSelected() {
     this.set("selected", []);
+  },
+
+  _isFilterPage(filter, filterType) {
+    if (!filter) {
+      return false;
+    }
+    return new RegExp(filterType + "$", "gi").test(filter);
   },
 
   actions: {
@@ -40,9 +51,7 @@ export default Mixin.create({
 
       promise.then((result) => {
         if (result && result.topic_ids) {
-          const tracker = this.topicTrackingState;
-          result.topic_ids.forEach((t) => tracker.removeTopic(t));
-          tracker.incrementMessageCount();
+          this.topicTrackingState.removeTopics(result.topic_ids);
         }
 
         this.send("closeModal");
@@ -51,6 +60,14 @@ export default Mixin.create({
           tracked ? { skipResettingParams: ["filter", "f"] } : {}
         );
       });
+    },
+
+    updateAutoAddTopicsToBulkSelect(newVal) {
+      this.set("autoAddTopicsToBulkSelect", newVal);
+    },
+
+    addTopicsToBulkSelect(topics) {
+      this.selected.pushObjects(topics);
     },
   },
 });

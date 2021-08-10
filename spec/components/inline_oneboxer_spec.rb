@@ -116,7 +116,7 @@ describe InlineOneboxer do
       expect(onebox[:title]).to eq("Hello 🍕 with an emoji")
     end
 
-    it "will append the post number post auther's username to the title" do
+    it "will append the post number post author's username to the title" do
       topic = Fabricate(:topic, title: "Inline oneboxer")
       Fabricate(:post, topic: topic) # OP
       Fabricate(:post, topic: topic)
@@ -149,6 +149,12 @@ describe InlineOneboxer do
 
     it "will not crawl domains that aren't allowlisted" do
       SiteSetting.enable_inline_onebox_on_all_domains = false
+      onebox = InlineOneboxer.lookup("https://eviltrout.com", skip_cache: true)
+      expect(onebox).to be_blank
+    end
+
+    it "will not crawl domains that are blocked" do
+      SiteSetting.blocked_onebox_domains = "eviltrout.com"
       onebox = InlineOneboxer.lookup("https://eviltrout.com", skip_cache: true)
       expect(onebox).to be_blank
     end

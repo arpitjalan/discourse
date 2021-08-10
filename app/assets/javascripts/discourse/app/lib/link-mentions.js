@@ -1,38 +1,45 @@
 import { ajax } from "discourse/lib/ajax";
 import { formatUsername } from "discourse/lib/utilities";
 import getURL from "discourse-common/lib/get-url";
-import { schedule } from "@ember/runloop";
 import { userPath } from "discourse/lib/url";
 
 let maxGroupMention;
 
 function replaceSpan($e, username, opts) {
-  let extra = "";
-  let extraClass = "";
+  let extra = {};
+  let extraClass = [];
+  const element = $e[0];
+  const a = document.createElement("a");
 
   if (opts && opts.group) {
     if (opts.mentionable) {
-      extra = `data-name='${username}' data-mentionable-user-count='${opts.mentionable.user_count}' data-max-mentions='${maxGroupMention}'`;
-      extraClass = "notify";
+      extra = {
+        name: username,
+        mentionableUserCount: opts.mentionable.user_count,
+        maxMentions: maxGroupMention,
+      };
+      extraClass.push("notify");
     }
-    $e.replaceWith(
-      `<a href='${
-        getURL("/g/") + username
-      }' class='mention-group ${extraClass}' ${extra}>@${username}</a>`
-    );
+
+    a.setAttribute("href", getURL("/g/") + username);
+    a.classList.add("mention-group", ...extraClass);
+    a.innerText = `@${username}`;
   } else {
     if (opts && opts.cannot_see) {
-      extra = `data-name='${username}'`;
-      extraClass = "cannot-see";
+      extra = { name: username };
+      extraClass.push("cannot-see");
     }
-    $e.replaceWith(
-      `<a href='${userPath(
-        username.toLowerCase()
-      )}' class='mention ${extraClass}' ${extra}>@${formatUsername(
-        username
-      )}</a>`
-    );
+
+    a.href = userPath(username.toLowerCase());
+    a.classList.add("mention", ...extraClass);
+    a.innerText = `@${formatUsername(username)}`;
   }
+
+  Object.keys(extra).forEach((key) => {
+    a.dataset[key] = extra[key];
+  });
+
+  element.replaceWith(a);
 }
 
 const found = {};
@@ -42,23 +49,21 @@ const checked = {};
 const cannotSee = [];
 
 function updateFound($mentions, usernames) {
-  schedule("afterRender", function () {
-    $mentions.each((i, e) => {
-      const $e = $(e);
-      const username = usernames[i];
-      if (found[username.toLowerCase()]) {
-        replaceSpan($e, username, { cannot_see: cannotSee[username] });
-      } else if (mentionableGroups[username]) {
-        replaceSpan($e, username, {
-          group: true,
-          mentionable: mentionableGroups[username],
-        });
-      } else if (foundGroups[username]) {
-        replaceSpan($e, username, { group: true });
-      } else if (checked[username]) {
-        $e.addClass("mention-tested");
-      }
-    });
+  $mentions.each((i, e) => {
+    const $e = $(e);
+    const username = usernames[i];
+    if (found[username.toLowerCase()]) {
+      replaceSpan($e, username, { cannot_see: cannotSee[username] });
+    } else if (mentionableGroups[username]) {
+      replaceSpan($e, username, {
+        group: true,
+        mentionable: mentionableGroups[username],
+      });
+    } else if (foundGroups[username]) {
+      replaceSpan($e, username, { group: true });
+    } else if (checked[username]) {
+      $e.addClass("mention-tested");
+    }
   });
 }
 

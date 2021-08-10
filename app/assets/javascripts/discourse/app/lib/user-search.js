@@ -6,11 +6,19 @@ import { emailValid } from "discourse/lib/utilities";
 import { isTesting } from "discourse-common/config/environment";
 import { userPath } from "discourse/lib/url";
 
-var cache = {},
+let cache = {},
   cacheKey,
   cacheTime,
   currentTerm,
   oldSearch;
+
+export function resetUserSearchCache() {
+  cache = {};
+  cacheKey = null;
+  cacheTime = null;
+  currentTerm = null;
+  oldSearch = null;
+}
 
 function performSearch(
   term,
@@ -21,9 +29,12 @@ function performSearch(
   includeMessageableGroups,
   allowedUsers,
   groupMembersOf,
+  includeStagedUsers,
+  lastSeenUsers,
+  limit,
   resultsFn
 ) {
-  var cached = cache[term];
+  let cached = cache[term];
   if (cached) {
     resultsFn(cached);
     return;
@@ -31,7 +42,7 @@ function performSearch(
 
   const eagerComplete = eagerCompleteSearch(term, topicId || categoryId);
 
-  if (term === "" && !eagerComplete) {
+  if (term === "" && !eagerComplete && !lastSeenUsers) {
     // The server returns no results in this case, so no point checking
     // do not return empty list, because autocomplete will get terminated
     resultsFn(CANCELLED_STATUS);
@@ -49,10 +60,13 @@ function performSearch(
       include_messageable_groups: includeMessageableGroups,
       groups: groupMembersOf,
       topic_allowed_users: allowedUsers,
+      include_staged_users: includeStagedUsers,
+      last_seen_users: lastSeenUsers,
+      limit: limit,
     },
   });
 
-  var returnVal = CANCELLED_STATUS;
+  let returnVal = CANCELLED_STATUS;
 
   oldSearch
     .then(function (r) {
@@ -81,7 +95,7 @@ function performSearch(
     });
 }
 
-var debouncedSearch = function (
+let debouncedSearch = function (
   term,
   topicId,
   categoryId,
@@ -90,6 +104,9 @@ var debouncedSearch = function (
   includeMessageableGroups,
   allowedUsers,
   groupMembersOf,
+  includeStagedUsers,
+  lastSeenUsers,
+  limit,
   resultsFn
 ) {
   discourseDebounce(
@@ -103,6 +120,9 @@ var debouncedSearch = function (
     includeMessageableGroups,
     allowedUsers,
     groupMembersOf,
+    includeStagedUsers,
+    lastSeenUsers,
+    limit,
     resultsFn,
     300
   );
@@ -113,7 +133,7 @@ function organizeResults(r, options) {
     return r;
   }
 
-  var exclude = options.exclude || [],
+  let exclude = options.exclude || [],
     limit = options.limit || 5,
     users = [],
     emails = [],
@@ -157,7 +177,7 @@ function organizeResults(r, options) {
   return results;
 }
 
-// all punctuations except for -, _ and . which are allowed in usernames
+// all punctuation except for -, _ and . which are allowed in usernames
 // note: these are valid in names, but will end up tripping search anyway so just skip
 // this means searching for `sam saffron` is OK but if my name is `sam$ saffron` autocomplete
 // will not find me, which is a reasonable compromise
@@ -165,7 +185,10 @@ function organizeResults(r, options) {
 // we also ignore if we notice a double space or a string that is only a space
 const ignoreRegex = /([\u2000-\u206F\u2E00-\u2E7F\\'!"#$%&()*,\/:;<=>?\[\]^`{|}~])|\s\s|^\s$|^[^+]*\+[^@]*$/;
 
-export function skipSearch(term, allowEmails) {
+export function skipSearch(term, allowEmails, lastSeenUsers = false) {
+  if (lastSeenUsers) {
+    return false;
+  }
   if (term.indexOf("@") > -1 && !allowEmails) {
     return true;
   }
@@ -182,14 +205,17 @@ export default function userSearch(options) {
     options.term = options.term.substring(1);
   }
 
-  var term = options.term || "",
+  let term = options.term || "",
     includeGroups = options.includeGroups,
     includeMentionableGroups = options.includeMentionableGroups,
     includeMessageableGroups = options.includeMessageableGroups,
     allowedUsers = options.allowedUsers,
     topicId = options.topicId,
     categoryId = options.categoryId,
-    groupMembersOf = options.groupMembersOf;
+    groupMembersOf = options.groupMembersOf,
+    includeStagedUsers = options.includeStagedUsers,
+    lastSeenUsers = options.lastSeenUsers,
+    limit = options.limit || 6;
 
   if (oldSearch) {
     oldSearch.abort();
@@ -212,7 +238,7 @@ export default function userSearch(options) {
       clearPromise = later(() => resolve(CANCELLED_STATUS), 5000);
     }
 
-    if (skipSearch(term, options.allowEmails)) {
+    if (skipSearch(term, options.allowEmails, options.lastSeenUsers)) {
       resolve([]);
       return;
     }
@@ -226,6 +252,9 @@ export default function userSearch(options) {
       includeMessageableGroups,
       allowedUsers,
       groupMembersOf,
+      includeStagedUsers,
+      lastSeenUsers,
+      limit,
       function (r) {
         cancel(clearPromise);
         resolve(organizeResults(r, options));

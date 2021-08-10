@@ -24,14 +24,14 @@
           class="btn-default edit-category"
           action=editCategory
           icon="wrench"
-          label="category.edit"}}
+          ariaLabel="category.edit"}}
       {{/if}}
     {{/unless}}
   {{/if}}
 
   {{#if tag}}
     {{#if showToggleInfo}}
-      {{d-button icon="tag" class="btn-default" label="tagging.info" action=toggleInfo id="show-tag-info"}}
+      {{d-button icon="wrench" class="btn-default" ariaLabel="tagging.info" action=toggleInfo id="show-tag-info"}}
     {{/if}}
   {{/if}}
 
@@ -39,7 +39,10 @@
     args=(hash
       canCreateTopic=canCreateTopic
       createTopicDisabled=createTopicDisabled
-      createTopicLabel=createTopicLabel)
+      createTopicLabel=createTopicLabel
+      additionalTags=additionalTags
+      category=category
+      tag=tag)
   }}
 
   {{create-topic-button
@@ -49,6 +52,14 @@
     label=createTopicLabel
     btnClass=createTopicClass
     canCreateTopicOnTag=canCreateTopicOnTag
+  }}
+
+  {{plugin-outlet name="after-create-topic-button" tagName=""
+    args=(hash
+      canCreateTopic=canCreateTopic
+      createTopicDisabled=createTopicDisabled
+      createTopicLabel=createTopicLabel
+      category=category)
   }}
 
   {{#if category}}
@@ -65,15 +76,15 @@
   {{/if}}
 
   {{#if tag}}
-    {{#if tagNotification}}
-      {{#unless additionalTags}}
-        {{!-- don't show tag notification menu on tag intersections --}}
+    {{#unless category}}
+      {{!-- don't show tag notification menu on category pages --}}
+      {{#if showTagNotifications}}
         {{tag-notifications-button
           onChange=changeTagNotificationLevel
           value=tagNotification.notification_level
         }}
-      {{/unless}}
-    {{/if}}
+      {{/if}}
+    {{/unless}}
   {{/if}}
 
 </div>

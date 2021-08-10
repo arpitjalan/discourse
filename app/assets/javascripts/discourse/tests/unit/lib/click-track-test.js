@@ -6,6 +6,7 @@ import User from "discourse/models/user";
 import { later } from "@ember/runloop";
 import pretender from "discourse/tests/helpers/create-pretender";
 import sinon from "sinon";
+import { setPrefix } from "discourse-common/lib/get-url";
 
 const track = ClickTrack.trackClick;
 
@@ -47,6 +48,9 @@ module("Unit | Utility | click-track", function (hooks) {
             <a href="https://discuss.domain.com/t/welcome-to-meta-discourse-org/1/30">foo</a>
             <a href="https://google.com">bar</a>
           </aside>
+          <a class="prefix-url" href="/forum/thing">prefix link</a>
+          <a class="abs-prefix-url" href="${window.location.origin}/forum/thing">prefix link</a>
+          <a class="diff-prefix-url" href="/thing">diff prefix link</a>
         </article>
       </div>`
     );
@@ -83,6 +87,37 @@ module("Unit | Utility | click-track", function (hooks) {
         "http://discuss.domain.com/uploads/default/1234/1532357280.txt"
       )
     );
+  });
+
+  test("routes to internal urls", async function (assert) {
+    setPrefix("/forum");
+    pretender.post("/clicks/track", () => [200, {}, ""]);
+    await track(generateClickEventOn(".prefix-url"), null, {
+      returnPromise: true,
+    });
+    assert.ok(DiscourseURL.routeTo.calledWith("/forum/thing"));
+  });
+
+  test("routes to absolute internal urls", async function (assert) {
+    setPrefix("/forum");
+    pretender.post("/clicks/track", () => [200, {}, ""]);
+    await track(generateClickEventOn(".abs-prefix-url"), null, {
+      returnPromise: true,
+    });
+    assert.ok(
+      DiscourseURL.routeTo.calledWith(window.location.origin + "/forum/thing")
+    );
+  });
+
+  test("redirects to internal urls with a different prefix", async function (assert) {
+    setPrefix("/forum");
+    sinon.stub(DiscourseURL, "redirectAbsolute");
+
+    pretender.post("/clicks/track", () => [200, {}, ""]);
+    await track(generateClickEventOn(".diff-prefix-url"), null, {
+      returnPromise: true,
+    });
+    assert.ok(DiscourseURL.redirectAbsolute.calledWith("/thing"));
   });
 
   skip("tracks external URLs", async function (assert) {
@@ -154,7 +189,7 @@ module("Unit | Utility | click-track", function (hooks) {
 
     assert.notOk(track(generateClickEventOn("a")));
 
-    var $link = fixture("a").first();
+    let $link = fixture("a").first();
     assert.ok($link.hasClass("no-href"));
     assert.equal($link.data("href"), "http://www.google.com/");
     assert.blank($link.attr("href"));
@@ -178,7 +213,7 @@ module("Unit | Utility | click-track", function (hooks) {
 
   function badgeClickCount(assert, id, expected) {
     track(generateClickEventOn("#" + id));
-    var $badge = $("span.badge", fixture("#" + id).first());
+    let $badge = $("span.badge", fixture("#" + id).first());
     assert.equal(parseInt($badge.html(), 10), expected);
   }
 
@@ -200,7 +235,7 @@ module("Unit | Utility | click-track", function (hooks) {
 
   function testOpenInANewTab(description, clickEventModifier) {
     test(description, async function (assert) {
-      var clickEvent = generateClickEventOn("a");
+      let clickEvent = generateClickEventOn("a");
       clickEventModifier(clickEvent);
       assert.ok(track(clickEvent));
       assert.notOk(clickEvent.defaultPrevented);

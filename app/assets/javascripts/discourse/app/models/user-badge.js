@@ -4,6 +4,7 @@ import { Promise } from "rsvp";
 import Topic from "discourse/models/topic";
 import User from "discourse/models/user";
 import { ajax } from "discourse/lib/ajax";
+import { popupAjaxError } from "discourse/lib/ajax-error";
 import discourseComputed from "discourse-common/utils/decorators";
 
 const UserBadge = EmberObject.extend({
@@ -19,6 +20,17 @@ const UserBadge = EmberObject.extend({
       type: "DELETE",
     });
   },
+
+  favorite() {
+    this.toggleProperty("is_favorite");
+    return ajax(`/user_badges/${this.id}/toggle_favorite`, {
+      type: "PUT",
+    }).catch((e) => {
+      // something went wrong, switch the UI back:
+      this.toggleProperty("is_favorite");
+      popupAjaxError(e);
+    });
+  },
 });
 
 UserBadge.reopenClass({
@@ -27,7 +39,7 @@ UserBadge.reopenClass({
     if (json.users === undefined) {
       json.users = [];
     }
-    var users = {};
+    let users = {};
     json.users.forEach(function (userJson) {
       users[userJson.id] = User.create(userJson);
     });
@@ -36,7 +48,7 @@ UserBadge.reopenClass({
     if (json.topics === undefined) {
       json.topics = [];
     }
-    var topics = {};
+    let topics = {};
     json.topics.forEach(function (topicJson) {
       topics[topicJson.id] = Topic.create(topicJson);
     });
@@ -45,13 +57,13 @@ UserBadge.reopenClass({
     if (json.badges === undefined) {
       json.badges = [];
     }
-    var badges = {};
+    let badges = {};
     Badge.createFromJson(json).forEach(function (badge) {
       badges[badge.get("id")] = badge;
     });
 
     // Create UserBadge object(s).
-    var userBadges = [];
+    let userBadges = [];
     if ("user_badge" in json) {
       userBadges = [json.user_badge];
     } else {
@@ -61,9 +73,9 @@ UserBadge.reopenClass({
     }
 
     userBadges = userBadges.map(function (userBadgeJson) {
-      var userBadge = UserBadge.create(userBadgeJson);
+      let userBadge = UserBadge.create(userBadgeJson);
 
-      var grantedAtDate = Date.parse(userBadge.get("granted_at"));
+      let grantedAtDate = Date.parse(userBadge.get("granted_at"));
       userBadge.set("grantedAt", grantedAtDate);
 
       userBadge.set("badge", badges[userBadge.get("badge_id")]);
@@ -102,7 +114,7 @@ UserBadge.reopenClass({
     if (!username) {
       return Promise.resolve([]);
     }
-    var url = "/user-badges/" + username + ".json";
+    let url = "/user-badges/" + username + ".json";
     if (options && options.grouped) {
       url += "?grouped=true";
     }

@@ -135,7 +135,7 @@ describe Search do
     expect(search.term).to eq('a b c okaylength')
   end
 
-  context 'query sanitizaton' do
+  context 'query sanitization' do
     let!(:post) { Fabricate(:post, raw: 'hello world') }
 
     it 'escapes backslash' do
@@ -601,8 +601,8 @@ describe Search do
       expect(result.posts.pluck(:id)).to eq([post2.id, post.id])
     end
 
-    it 'aggregates searches in a topic by returning the post with the highest rank' do
-      _post = Fabricate(:post, topic: topic, raw: "this is a play post")
+    it 'aggregates searches in a topic by returning the post with the lowest post number' do
+      post = Fabricate(:post, topic: topic, raw: "this is a play post")
       post2 = Fabricate(:post, topic: topic, raw: "play play playing played play")
       post3 = Fabricate(:post, raw: "this is a play post")
 
@@ -613,7 +613,7 @@ describe Search do
       results = Search.execute('play')
 
       expect(results.posts.map(&:id)).to eq([
-        post2.id,
+        post.id,
         post3.id
       ])
     end
@@ -961,7 +961,7 @@ describe Search do
 
       it 'can find posts with tags' do
         # we got to make this index (it is deferred)
-        Jobs::ReindexSearch.new.rebuild_problem_posts
+        Jobs::ReindexSearch.new.rebuild_posts
 
         result = Search.execute(tag.name)
         expect(result.posts.length).to eq(1)
@@ -977,7 +977,7 @@ describe Search do
 
       it 'can find posts with tag synonyms' do
         synonym = Fabricate(:tag, name: 'synonym', target_tag: tag)
-        Jobs::ReindexSearch.new.rebuild_problem_posts
+        Jobs::ReindexSearch.new.rebuild_posts
         result = Search.execute(synonym.name)
         expect(result.posts.length).to eq(1)
       end
@@ -1406,7 +1406,7 @@ describe Search do
         raw: 'Relevant Relevant Topic'
       )
 
-      latest_irelevant_topic_post = Fabricate(:post,
+      latest_irrelevant_topic_post = Fabricate(:post,
         topic: latest_topic,
         created_at: today,
         raw: 'Not Relevant'
@@ -1415,14 +1415,14 @@ describe Search do
       # Expecting the default results
       expect(Search.execute('Topic').posts.map(&:id)).to eq([
         old_relevant_topic_post.id,
-        latest_irelevant_topic_post.id,
+        latest_irrelevant_topic_post.id,
         category.topic.first_post.id
       ])
 
       # Expecting the ordered by topic creation results
       expect(Search.execute('Topic order:latest_topic').posts.map(&:id)).to eq([
         category.topic.first_post.id,
-        latest_irelevant_topic_post.id,
+        latest_irrelevant_topic_post.id,
         old_relevant_topic_post.id
       ])
     end
@@ -1667,7 +1667,7 @@ describe Search do
       expect(ts_query).to include("baz")
     end
 
-    it 'esacpes the term correctly' do
+    it 'escapes the term correctly' do
       expect(Search.ts_query(term: 'Title with trailing backslash\\'))
         .to eq("TO_TSQUERY('english', '''Title with trailing backslash\\\\\\\\'':*')")
 
@@ -1791,6 +1791,27 @@ describe Search do
     end
   end
 
+  context 'CJK segmentation' do
+    before do
+      SiteSetting.search_tokenize_chinese_japanese_korean = true
+      SiteSetting.min_search_term_length = 1
+    end
+
+    let!(:post1) do
+      Fabricate(:post, raw: '場サアマネ織企ういかせ竹域ヱイマ穂基ホ神3予読ずねいぱ松査ス禁多サウ提懸イふ引小43改こょドめ。深とつぐ主思料農ぞかル者杯検める活分えほづぼ白犠')
+    end
+
+    it('does not include superfluous spaces in blurbs') do
+
+      results = Search.execute('ういかせ竹域', type_filter: 'topic')
+      expect(results.posts.length).to eq(1)
+
+      expect(results.blurb(results.posts.first)).to include('ういかせ竹域')
+
+    end
+
+  end
+
   context 'include_diacritics' do
     before { SiteSetting.search_ignore_accents = false }
     let!(:post1) { Fabricate(:post, raw: 'สวัสดี Régis hello') }
@@ -1892,9 +1913,11 @@ describe Search do
 
     it 'allows to define custom order' do
       expect(Search.new("advanced").execute.posts).to eq([post1, post0])
+
       Search.advanced_order(:chars) do |posts|
-        posts.reorder("(SELECT LENGTH(raw) FROM posts WHERE posts.topic_id = subquery.topic_id) DESC")
+        posts.reorder("MAX(LENGTH(posts.raw)) DESC")
       end
+
       expect(Search.new("advanced order:chars").execute.posts).to eq([post0, post1])
     end
   end

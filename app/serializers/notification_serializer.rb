@@ -7,6 +7,7 @@ class NotificationSerializer < ApplicationSerializer
              :external_id,
              :notification_type,
              :read,
+             :high_priority,
              :created_at,
              :post_number,
              :topic_id,
@@ -44,7 +45,7 @@ class NotificationSerializer < ApplicationSerializer
   end
 
   def include_external_id?
-    SiteSetting.enable_sso
+    SiteSetting.enable_discourse_connect
   end
 
 end

@@ -1,11 +1,11 @@
-// special handling for IMG tags on a line by themeselves
+// special handling for IMG tags on a line by themselves
 // we always have to handle it as so it is an inline
 // see: https://talk.commonmark.org/t/newline-and-img-tags/2511
 
 const REGEX = /^<img.*\\?>\s*$/i;
 
 function rule(state, startLine, endLine) {
-  var nextLine,
+  let nextLine,
     token,
     lineText,
     pos = state.bMarks[startLine] + state.tShift[startLine],

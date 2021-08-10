@@ -57,7 +57,7 @@ describe TopicViewSerializer do
         expect(json[:image_url]).to end_with(image_upload.url)
       end
 
-      it 'should have thumbnails' do
+      it 'should have thumbnail jobs enqueued' do
         SiteSetting.create_thumbnails = true
 
         Discourse.redis.del(topic.thumbnail_job_redis_key(Topic.thumbnail_sizes))
@@ -72,9 +72,6 @@ describe TopicViewSerializer do
         expect do
           json = serialize_topic(topic, user)
         end.to change { Jobs::GenerateTopicThumbnails.jobs.size }.by(0)
-
-        # Original + Optimized
-        expect(json[:thumbnails].length).to eq(2)
       end
     end
 
@@ -196,8 +193,6 @@ describe TopicViewSerializer do
     fab!(:staff_tag_group) { Fabricate(:tag_group, permissions: { "staff" => 1 }, tag_names: [hidden_tag.name]) }
 
     before do
-      SiteSetting.tagging_enabled = true
-      hidden_tag.tag_groups << staff_tag_group
       topic.tags << hidden_tag
     end
 
@@ -218,7 +213,6 @@ describe TopicViewSerializer do
     fab!(:tag3) { Fabricate(:tag, name: 'atag', topic_count: 3) }
 
     before do
-      SiteSetting.tagging_enabled = true
       topic.tags << tag1
       topic.tags << tag2
       topic.tags << tag3
@@ -467,7 +461,7 @@ describe TopicViewSerializer do
       end
     end
 
-    context 'Wwhen the slow mode is enabled' do
+    context 'When the slow mode is enabled' do
       before { topic.update!(slow_mode_seconds: 1000) }
 
       it 'returns nil if no user is given' do

@@ -1,19 +1,24 @@
 import Component from "@ember/component";
-import I18n from "I18n";
+import { equal } from "@ember/object/computed";
 import bootbox from "bootbox";
-import { iconHTML } from "discourse-common/lib/icon-library";
+import discourseComputed from "discourse-common/utils/decorators";
+import { action } from "@ember/object";
+import I18n from "I18n";
 
 export default Component.extend({
   classNames: ["watched-word"],
-  watchedWord: null,
-  xIcon: iconHTML("times").htmlSafe(),
 
-  init() {
-    this._super(...arguments);
-    this.set("watchedWord", this.get("word.word"));
+  isReplace: equal("actionKey", "replace"),
+  isTag: equal("actionKey", "tag"),
+  isLink: equal("actionKey", "link"),
+
+  @discourseComputed("word.replacement")
+  tags(replacement) {
+    return replacement.split(",");
   },
 
-  click() {
+  @action
+  deleteWord() {
     this.word
       .destroy()
       .then(() => {

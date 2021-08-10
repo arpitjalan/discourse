@@ -3,9 +3,6 @@
     margin-right: 10px;
   }
 }
-.group-info {
-  margin-bottom: 20px;
-}
 
 .group-navigation {
   width: 15%;
@@ -48,4 +45,11 @@
 .groups-form.groups-notifications-form {
   width: 500px;
   max-width: 100%;
+}
+
+.group-smtp-email-settings,
+.group-imap-email-settings {
+  .group-email-last-updated-details {
+    text-align: right;
+  }
 }

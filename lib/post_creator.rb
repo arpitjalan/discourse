@@ -32,7 +32,7 @@ class PostCreator
   #   skip_jobs               - Don't enqueue jobs when creation succeeds. This is needed if you
   #                             wrap `PostCreator` in a transaction, as the sidekiq jobs could
   #                             dequeue before the commit finishes. If you do this, be sure to
-  #                             call `enqueue_jobs` after the transaction is comitted.
+  #                             call `enqueue_jobs` after the transaction is committed.
   #   hidden_reason_id        - Reason for hiding the post (optional)
   #   skip_validations        - Do not validate any of the content in the post
   #   draft_key               - the key of the draft we are creating (will be deleted on success)
@@ -239,7 +239,13 @@ class PostCreator
       auto_close
     end
 
-    handle_spam if !opts[:import_mode] && (@post || @spam)
+    if !opts[:import_mode]
+      handle_spam if (@spam || @post)
+
+      if !@spam && @post && errors.blank?
+        ReviewablePost.queue_for_review_if_possible(@post, @user)
+      end
+    end
 
     @post
   end
@@ -419,8 +425,7 @@ class PostCreator
   end
 
   def update_uploads_secure_status
-    return if !SiteSetting.secure_media?
-    @post.update_uploads_secure_status
+    @post.update_uploads_secure_status(source: "post creator") if SiteSetting.secure_media?
   end
 
   def delete_owned_bookmarks
@@ -453,14 +458,18 @@ class PostCreator
 
   def ensure_in_allowed_users
     return unless @topic.private_message? && @topic.id
+    return if @post.whisper?
+    return if @topic.topic_allowed_users.exists?(user_id: @user.id)
 
-    unless @topic.topic_allowed_users.where(user_id: @user.id).exists?
-      unless @topic.topic_allowed_groups.where('group_id IN (
-                                              SELECT group_id FROM group_users where user_id = ?
-                                           )', @user.id).exists?
-        @topic.topic_allowed_users.create!(user_id: @user.id)
-      end
-    end
+    return if @topic
+      .topic_allowed_groups
+      .where(
+        "group_id IN (SELECT group_id FROM group_users where user_id = ?)",
+        @user.id
+      )
+      .exists?
+
+    @topic.topic_allowed_users.create!(user_id: @user.id)
   end
 
   def unarchive_message
@@ -528,12 +537,12 @@ class PostCreator
 
       if topic_timer &&
          topic_timer.based_on_last_post &&
-         topic_timer.duration.to_i > 0
+         topic_timer.duration_minutes.to_i > 0
 
         @topic.set_or_create_timer(TopicTimer.types[:close],
           nil,
           based_on_last_post: topic_timer.based_on_last_post,
-          duration: topic_timer.duration
+          duration_minutes: topic_timer.duration_minutes
         )
       end
     end
@@ -641,7 +650,6 @@ class PostCreator
                       @topic.id,
                       posted: true,
                       last_read_post_number: @post.post_number,
-                      highest_seen_post_number: @post.post_number,
                       last_posted_at: Time.zone.now)
 
     # assume it took us 5 seconds of reading time to make a post

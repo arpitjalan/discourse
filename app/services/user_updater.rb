@@ -67,15 +67,15 @@ class UserUpdater
   def update(attributes = {})
     user_profile = user.user_profile
     user_profile.dismissed_banner_key = attributes[:dismissed_banner_key] if attributes[:dismissed_banner_key].present?
-    unless SiteSetting.enable_sso && SiteSetting.sso_overrides_bio
+    unless SiteSetting.enable_discourse_connect && SiteSetting.discourse_connect_overrides_bio
       user_profile.bio_raw = attributes.fetch(:bio_raw) { user_profile.bio_raw }
     end
 
-    unless SiteSetting.enable_sso && SiteSetting.sso_overrides_location
+    unless SiteSetting.enable_discourse_connect && SiteSetting.discourse_connect_overrides_location
       user_profile.location = attributes.fetch(:location) { user_profile.location }
     end
 
-    unless SiteSetting.enable_sso && SiteSetting.sso_overrides_website
+    unless SiteSetting.enable_discourse_connect && SiteSetting.discourse_connect_overrides_website
       user_profile.website = format_url(attributes.fetch(:website) { user_profile.website })
     end
 
@@ -97,7 +97,10 @@ class UserUpdater
     end
 
     old_user_name = user.name.present? ? user.name : ""
-    user.name = attributes.fetch(:name) { user.name }
+
+    if guardian.can_edit_name?(user)
+      user.name = attributes.fetch(:name) { user.name }
+    end
 
     user.locale = attributes.fetch(:locale) { user.locale }
     user.date_of_birth = attributes.fetch(:date_of_birth) { user.date_of_birth }
@@ -121,15 +124,25 @@ class UserUpdater
       user.primary_group_id = nil
     end
 
-    CATEGORY_IDS.each do |attribute, level|
-      if ids = attributes[attribute]
-        CategoryUser.batch_set(user, level, ids)
-      end
+    if attributes[:flair_group_id] &&
+      attributes[:flair_group_id] != user.flair_group_id &&
+      (attributes[:flair_group_id].blank? ||
+        guardian.can_use_flair_group?(user, attributes[:flair_group_id]))
+
+      user.flair_group_id = attributes[:flair_group_id]
     end
 
-    TAG_NAMES.each do |attribute, level|
-      if attributes.has_key?(attribute)
-        TagUser.batch_set(user, level, attributes[attribute]&.split(',') || [])
+    if @guardian.can_change_tracking_preferences?(user)
+      CATEGORY_IDS.each do |attribute, level|
+        if ids = attributes[attribute]
+          CategoryUser.batch_set(user, level, ids)
+        end
+      end
+
+      TAG_NAMES.each do |attribute, level|
+        if attributes.has_key?(attribute)
+          TagUser.batch_set(user, level, attributes[attribute]&.split(',') || [])
+        end
       end
     end
 
@@ -200,7 +213,9 @@ class UserUpdater
 
     if saved
       if user_notification_schedule
-        user_notification_schedule.create_do_not_disturb_timings(delete_existing: true)
+        user_notification_schedule.enabled ?
+          user_notification_schedule.create_do_not_disturb_timings(delete_existing: true) :
+          user_notification_schedule.destroy_scheduled_timings
       end
       DiscourseEvent.trigger(:user_updated, user)
     end

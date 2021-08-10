@@ -18,8 +18,12 @@ class UserNotificationSchedule < ActiveRecord::Base
   scope :enabled, -> { where(enabled: true) }
 
   def create_do_not_disturb_timings(delete_existing: false)
-    user.do_not_disturb_timings.where(scheduled: true).destroy_all if delete_existing
+    destroy_scheduled_timings if delete_existing
     UserNotificationScheduleProcessor.create_do_not_disturb_timings_for(self)
+  end
+
+  def destroy_scheduled_timings
+    user.do_not_disturb_timings.where(scheduled: true).destroy_all
   end
 
   private
@@ -43,3 +47,31 @@ class UserNotificationSchedule < ActiveRecord::Base
     end
   end
 end
+
+# == Schema Information
+#
+# Table name: user_notification_schedules
+#
+#  id               :bigint           not null, primary key
+#  user_id          :integer          not null
+#  enabled          :boolean          default(FALSE), not null
+#  day_0_start_time :integer          not null
+#  day_0_end_time   :integer          not null
+#  day_1_start_time :integer          not null
+#  day_1_end_time   :integer          not null
+#  day_2_start_time :integer          not null
+#  day_2_end_time   :integer          not null
+#  day_3_start_time :integer          not null
+#  day_3_end_time   :integer          not null
+#  day_4_start_time :integer          not null
+#  day_4_end_time   :integer          not null
+#  day_5_start_time :integer          not null
+#  day_5_end_time   :integer          not null
+#  day_6_start_time :integer          not null
+#  day_6_end_time   :integer          not null
+#
+# Indexes
+#
+#  index_user_notification_schedules_on_enabled  (enabled)
+#  index_user_notification_schedules_on_user_id  (user_id)
+#

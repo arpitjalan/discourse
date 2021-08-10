@@ -26,11 +26,13 @@ module Jobs
       else
 
         # autoclosed, false is just another way of saying open.
-        # this handles deleting the topic timer as wel, see TopicStatusUpdater
+        # this handles deleting the topic timer as well, see TopicStatusUpdater
         topic.update_status('autoclosed', false, user)
       end
 
       topic.inherit_auto_close_from_category(timer_type: :close)
+
+      MessageBus.publish("/topic/#{topic.id}", reload_topic: true)
     end
   end
 end

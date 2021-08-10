@@ -1,6 +1,8 @@
 import {
   acceptance,
+  count,
   exists,
+  query,
   queryAll,
 } from "discourse/tests/helpers/qunit-helpers";
 import { click, fillIn, triggerKeyEvent, visit } from "@ember/test-helpers";
@@ -48,6 +50,22 @@ acceptance("Search - Anonymous", function (needs) {
       exists(".search-advanced-options"),
       "advanced search is expanded"
     );
+  });
+
+  test("search button toggles search menu", async function (assert) {
+    await visit("/");
+
+    await click("#search-button");
+    assert.ok(exists(".search-menu"));
+
+    await click(".d-header"); // click outside
+    assert.ok(!exists(".search-menu"));
+
+    await click("#search-button");
+    assert.ok(exists(".search-menu"));
+
+    await click("#search-button"); // toggle same button
+    assert.ok(!exists(".search-menu"));
   });
 
   test("search for a tag", async function (assert) {
@@ -155,6 +173,38 @@ acceptance("Search - Anonymous", function (needs) {
 acceptance("Search - Authenticated", function (needs) {
   needs.user();
 
+  needs.pretender((server, helper) => {
+    server.get("/search/query", (request) => {
+      if (request.queryParams.term.includes("empty")) {
+        return helper.response({
+          posts: [],
+          users: [],
+          categories: [],
+          tags: [],
+          groups: [],
+          grouped_search_result: {
+            more_posts: null,
+            more_users: null,
+            more_categories: null,
+            term: "plans test",
+            search_log_id: 1,
+            more_full_page_results: null,
+            can_create_topic: true,
+            error: null,
+            type_filter: null,
+            post_ids: [],
+            user_ids: [],
+            category_ids: [],
+            tag_ids: [],
+            group_ids: [],
+          },
+        });
+      }
+
+      return helper.response(searchFixtures["search/query"]);
+    });
+  });
+
   test("Right filters are shown to logged-in users", async function (assert) {
     const inSelector = selectKit(".select-kit#in");
 
@@ -177,6 +227,20 @@ acceptance("Search - Authenticated", function (needs) {
     assert.ok(exists(".search-advanced-options .in-private"));
     assert.ok(exists(".search-advanced-options .in-seen"));
   });
+
+  test("Works with empty result sets", async function (assert) {
+    await visit("/t/internationalization-localization/280");
+    await click(".search-dropdown");
+    await click(".search-context input[type=checkbox]");
+    await fillIn("#search-term", "plans");
+    await triggerKeyEvent("#search-term", "keyup", 32);
+    assert.notEqual(count(".item"), 0);
+
+    await fillIn("#search-term", "plans empty");
+    await triggerKeyEvent("#search-term", "keyup", 32);
+    assert.equal(count(".item"), 0);
+    assert.equal(count(".no-results"), 1);
+  });
 });
 
 acceptance("Search - with tagging enabled", function (needs) {
@@ -198,5 +262,107 @@ acceptance("Search - with tagging enabled", function (needs) {
       .trim();
 
     assert.equal(tags, "dev slow");
+  });
+});
+
+acceptance("Search - assistant", function (needs) {
+  needs.user();
+
+  needs.pretender((server, helper) => {
+    server.get("/u/search/users", () => {
+      return helper.response({
+        users: [
+          {
+            username: "TeaMoe",
+            name: "TeaMoe",
+            avatar_template:
+              "https://avatars.discourse.org/v3/letter/t/41988e/{size}.png",
+          },
+          {
+            username: "TeamOneJ",
+            name: "J Cobb",
+            avatar_template:
+              "https://avatars.discourse.org/v3/letter/t/3d9bf3/{size}.png",
+          },
+          {
+            username: "kudos",
+            name: "Team Blogeto.com",
+            avatar_template:
+              "/user_avatar/meta.discourse.org/kudos/{size}/62185_1.png",
+          },
+        ],
+      });
+    });
+  });
+
+  test("shows category shortcuts when typing #", async function (assert) {
+    await visit("/");
+
+    await click("#search-button");
+
+    await fillIn("#search-term", "#");
+    await triggerKeyEvent("#search-term", "keyup", 51);
+
+    const firstCategory =
+      ".search-menu .results ul.search-menu-assistant .search-link";
+    assert.ok(exists(query(firstCategory)));
+
+    const firstResultSlug = query(
+      `${firstCategory} .category-name`
+    ).innerText.trim();
+
+    await click(firstCategory);
+    assert.equal(query("#search-term").value, `#${firstResultSlug} `);
+
+    await fillIn("#search-term", "sam #");
+    await triggerKeyEvent("#search-term", "keyup", 51);
+
+    assert.ok(exists(query(firstCategory)));
+    assert.equal(
+      query(
+        ".search-menu .results ul.search-menu-assistant .search-item-prefix"
+      ).innerText,
+      "sam"
+    );
+
+    await click(firstCategory);
+    assert.equal(query("#search-term").value, `sam #${firstResultSlug} `);
+  });
+
+  test("shows in: shortcuts", async function (assert) {
+    await visit("/");
+    await click("#search-button");
+
+    const firstTarget =
+      ".search-menu .results ul.search-menu-assistant .search-link .search-item-slug";
+
+    await fillIn("#search-term", "in:");
+    await triggerKeyEvent("#search-term", "keyup", 51);
+    assert.equal(query(firstTarget).innerText, "in:title");
+
+    await fillIn("#search-term", "sam in:");
+    await triggerKeyEvent("#search-term", "keyup", 51);
+    assert.equal(query(firstTarget).innerText, "sam in:title");
+
+    await fillIn("#search-term", "in:pers");
+    await triggerKeyEvent("#search-term", "keyup", 51);
+    assert.equal(query(firstTarget).innerText, "in:personal");
+  });
+
+  test("shows users when typing @", async function (assert) {
+    await visit("/");
+
+    await click("#search-button");
+
+    await fillIn("#search-term", "@");
+    await triggerKeyEvent("#search-term", "keyup", 51);
+
+    const firstUser =
+      ".search-menu .results ul.search-menu-assistant .search-item-user";
+    const firstUsername = query(firstUser).innerText.trim();
+    assert.equal(firstUsername, "TeaMoe");
+
+    await click(query(firstUser));
+    assert.equal(query("#search-term").value, `@${firstUsername} `);
   });
 });

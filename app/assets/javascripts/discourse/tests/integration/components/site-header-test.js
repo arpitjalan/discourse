@@ -2,16 +2,18 @@ import componentTest, {
   setupRenderingTest,
 } from "discourse/tests/helpers/component-test";
 import {
+  count,
   discourseModule,
-  queryAll,
+  exists,
 } from "discourse/tests/helpers/qunit-helpers";
 import pretender from "discourse/tests/helpers/create-pretender";
+import hbs from "htmlbars-inline-precompile";
 
 discourseModule("Integration | Component | site-header", function (hooks) {
   setupRenderingTest(hooks);
 
   componentTest("first notification mask", {
-    template: `{{site-header}}`,
+    template: hbs`{{site-header}}`,
 
     beforeEach() {
       this.set("currentUser.unread_high_priority_notifications", 1);
@@ -19,8 +21,9 @@ discourseModule("Integration | Component | site-header", function (hooks) {
     },
 
     async test(assert) {
-      assert.ok(
-        queryAll(".ring-backdrop").length === 1,
+      assert.equal(
+        count(".ring-backdrop"),
+        1,
         "there is the first notification mask"
       );
 
@@ -28,19 +31,19 @@ discourseModule("Integration | Component | site-header", function (hooks) {
       await click("header.d-header");
 
       assert.ok(
-        queryAll(".ring-backdrop").length === 0,
+        !exists(".ring-backdrop"),
         "it hides the first notification mask"
       );
     },
   });
 
   componentTest("do not call authenticated endpoints as anonymous", {
-    template: `{{site-header}}`,
+    template: hbs`{{site-header}}`,
     anonymous: true,
 
     async test(assert) {
       assert.ok(
-        queryAll(".ring-backdrop").length === 0,
+        !exists(".ring-backdrop"),
         "there is no first notification mask for anonymous users"
       );
 

@@ -94,13 +94,7 @@ const ApplicationRoute = DiscourseRoute.extend(OpenComposer, {
     },
 
     error(err, transition) {
-      let xhr = {};
-      if (err.jqXHR) {
-        xhr = err.jqXHR;
-      }
-
-      const xhrOrErr = err.jqXHR ? xhr : err;
-
+      const xhrOrErr = err.jqXHR ? err.jqXHR : err;
       const exceptionController = this.controllerFor("exception");
 
       const c = window.console;
@@ -143,11 +137,8 @@ const ApplicationRoute = DiscourseRoute.extend(OpenComposer, {
       showModal("not-activated", { title: "log_in" }).setProperties(props);
     },
 
-    showUploadSelector(toolbarEvent) {
-      showModal("uploadSelector").setProperties({
-        toolbarEvent,
-        imageUrl: null,
-      });
+    showUploadSelector() {
+      document.getElementById("file-uploader").click();
     },
 
     showKeyboardShortcutsHelp() {
@@ -179,11 +170,19 @@ const ApplicationRoute = DiscourseRoute.extend(OpenComposer, {
         const controller = getOwner(this).lookup(
           `controller:${controllerName}`
         );
-        if (controller && controller.onClose) {
-          controller.onClose({
-            initiatedByCloseButton: initiatedBy === "initiatedByCloseButton",
-            initiatedByClickOut: initiatedBy === "initiatedByClickOut",
+
+        if (controller) {
+          this.appEvents.trigger("modal:closed", {
+            name: controllerName,
+            controller: controller,
           });
+
+          if (controller.onClose) {
+            controller.onClose({
+              initiatedByCloseButton: initiatedBy === "initiatedByCloseButton",
+              initiatedByClickOut: initiatedBy === "initiatedByClickOut",
+            });
+          }
         }
         modalController.set("name", null);
       }
@@ -230,8 +229,18 @@ const ApplicationRoute = DiscourseRoute.extend(OpenComposer, {
       );
     },
 
-    createNewMessageViaParams(recipients, title, body) {
-      this.openComposerWithMessageParams(recipients, title, body);
+    createNewMessageViaParams({
+      recipients = [],
+      topicTitle = "",
+      topicBody = "",
+      hasGroups = false,
+    } = {}) {
+      this.openComposerWithMessageParams({
+        recipients,
+        topicTitle,
+        topicBody,
+        hasGroups,
+      });
     },
   },
 
@@ -243,30 +252,32 @@ const ApplicationRoute = DiscourseRoute.extend(OpenComposer, {
   },
 
   handleShowLogin() {
-    if (this.siteSettings.enable_sso) {
+    if (this.siteSettings.enable_discourse_connect) {
       const returnPath = encodeURIComponent(window.location.pathname);
       window.location = getURL("/session/sso?return_path=" + returnPath);
     } else {
-      this._autoLogin("login", "login-modal", () =>
-        this.controllerFor("login").resetForm()
-      );
+      this._autoLogin("login", "login-modal", {
+        notAuto: () => this.controllerFor("login").resetForm(),
+      });
     }
   },
 
   handleShowCreateAccount() {
-    if (this.siteSettings.enable_sso) {
+    if (this.siteSettings.enable_discourse_connect) {
       const returnPath = encodeURIComponent(window.location.pathname);
       window.location = getURL("/session/sso?return_path=" + returnPath);
     } else {
-      this._autoLogin("createAccount", "create-account");
+      this._autoLogin("createAccount", "create-account", { signup: true });
     }
   },
 
-  _autoLogin(modal, modalClass, notAuto) {
+  _autoLogin(modal, modalClass, { notAuto = null, signup = false } = {}) {
     const methods = findAll();
 
     if (!this.siteSettings.enable_local_logins && methods.length === 1) {
-      this.controllerFor("login").send("externalLogin", methods[0]);
+      this.controllerFor("login").send("externalLogin", methods[0], {
+        signup: signup,
+      });
     } else {
       showModal(modal);
       this.controllerFor("modal").set("modalClass", modalClass);

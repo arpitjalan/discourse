@@ -24,11 +24,14 @@ class UploadCreator
   #  - pasted (boolean)
   #  - for_export (boolean)
   #  - for_gravatar (boolean)
+  #  - skip_validations (boolean)
   def initialize(file, filename, opts = {})
     @file = file
     @filename = (filename || "").gsub(/[^[:print:]]/, "")
     @upload = Upload.new(original_filename: @filename, filesize: 0)
     @opts = opts
+    @filesize = @opts[:filesize] if @opts[:external_upload_too_big]
+    @opts[:validate] = opts[:skip_validations].present? ? !ActiveRecord::Type::Boolean.new.cast(opts[:skip_validations]) : true
   end
 
   def create_for(user_id)
@@ -42,14 +45,22 @@ class UploadCreator
     is_image ||= @image_info && FileHelper.is_supported_image?("test.#{@image_info.type}")
     is_image = false if @opts[:for_theme]
 
+    # if this is present then it means we are creating an upload record from
+    # an external_upload_stub and the file is > ExternalUploadManager::DOWNLOAD_LIMIT,
+    # so we have not downloaded it to a tempfile. no modifications can be made to the
+    # file in this case because it does not exist; we simply move it to its new location
+    # in S3
+    external_upload_too_big = @opts[:external_upload_too_big]
+    sha1_before_changes = Upload.generate_digest(@file) if @file
+
     DistributedMutex.synchronize("upload_#{user_id}_#{@filename}") do
       # We need to convert HEIFs early because FastImage does not consider them as images
-      if convert_heif_to_jpeg?
+      if convert_heif_to_jpeg? && !external_upload_too_big
         convert_heif!
         is_image = FileHelper.is_supported_image?("test.#{@image_info.type}")
       end
 
-      if is_image
+      if is_image && !external_upload_too_big
         extract_image_info!
         return @upload if @upload.errors.present?
 
@@ -57,13 +68,11 @@ class UploadCreator
           clean_svg!
         elsif !Rails.env.test? || @opts[:force_optimize]
           convert_to_jpeg! if convert_png_to_jpeg? || should_alter_quality?
-          downsize!        if should_downsize?
-
-          return @upload   if is_still_too_big?
-
           fix_orientation! if should_fix_orientation?
           crop!            if should_crop?
           optimize!        if should_optimize?
+          downsize!        if should_downsize?
+          return @upload   if is_still_too_big?
         end
 
         # conversion may have switched the type
@@ -72,14 +81,18 @@ class UploadCreator
 
       # compute the sha of the file and generate a unique hash
       # which is only used for secure uploads
-      sha1 = Upload.generate_digest(@file)
-      unique_hash = SecureRandom.hex(20) if SiteSetting.secure_media
+      if !external_upload_too_big
+        sha1 = Upload.generate_digest(@file)
+      end
+      if SiteSetting.secure_media || external_upload_too_big
+        unique_hash = generate_fake_sha1_hash
+      end
 
       # we do not check for duplicate uploads if secure media is
       # enabled because we use a unique access hash to differentiate
       # between uploads instead of the sha1, and to get around various
       # access/permission issues for uploads
-      if !SiteSetting.secure_media
+      if !SiteSetting.secure_media && !external_upload_too_big
         # do we already have that upload?
         @upload = Upload.find_by(sha1: sha1)
 
@@ -99,7 +112,7 @@ class UploadCreator
 
       fixed_original_filename = nil
 
-      if is_image
+      if is_image && !external_upload_too_big
         current_extension = File.extname(@filename).downcase.sub("jpeg", "jpg")
         expected_extension = ".#{image_type}".downcase.sub("jpeg", "jpg")
 
@@ -117,33 +130,81 @@ class UploadCreator
       @upload.user_id           = user_id
       @upload.original_filename = fixed_original_filename || @filename
       @upload.filesize          = filesize
-      @upload.sha1              = SiteSetting.secure_media? ? unique_hash : sha1
+      @upload.sha1              = (SiteSetting.secure_media? || external_upload_too_big) ? unique_hash : sha1
       @upload.original_sha1     = SiteSetting.secure_media? ? sha1 : nil
       @upload.url               = ""
       @upload.origin            = @opts[:origin][0...1000] if @opts[:origin]
       @upload.extension         = image_type || File.extname(@filename)[1..10]
 
-      if is_image
-        @upload.thumbnail_width, @upload.thumbnail_height = ImageSizer.resize(*@image_info.size)
-        @upload.width, @upload.height = @image_info.size
+      if is_image && !external_upload_too_big
+        if @image_info.type.to_s == 'svg'
+          w, h = [0, 0]
+
+          # identify can behave differently depending on how it's compiled and
+          # what programs (e.g. inkscape) are installed on your system.
+          # 'MSVG:' forces ImageMagick to use internal routines and behave
+          # consistently whether it's running from our docker container or not
+          begin
+            w, h = Discourse::Utils
+              .execute_command("identify", "-ping", "-format", "%w %h", "MSVG:#{@file.path}", timeout: Upload::MAX_IDENTIFY_SECONDS)
+              .split(' ').map(&:to_i)
+          rescue
+            # use default 0, 0
+          end
+        else
+          w, h = @image_info.size
+        end
+
+        @upload.thumbnail_width, @upload.thumbnail_height = ImageSizer.resize(w, h)
+        @upload.width, @upload.height = w, h
         @upload.animated = animated?
       end
 
       add_metadata!
-      return @upload unless @upload.save
 
-      DiscourseEvent.trigger(:before_upload_creation, @file, is_image, @opts[:for_export])
+      if SiteSetting.secure_media
+        secure, reason = UploadSecurity.new(@upload, @opts.merge(creating: true)).should_be_secure_with_reason
+        attrs = @upload.secure_params(secure, reason, "upload creator")
+        @upload.assign_attributes(attrs)
+      end
 
-      # store the file and update its url
-      File.open(@file.path) do |f|
-        url = Discourse.store.store_upload(f, @upload)
+      # Callbacks using this event to validate the upload or the file must add errors to the
+      # upload errors object.
+      #
+      # Can't do any validation of the file if external_upload_too_big because we don't have
+      # the actual file.
+      if !external_upload_too_big
+        DiscourseEvent.trigger(:before_upload_creation, @file, is_image, @upload, @opts[:validate])
+      end
+      return @upload unless @upload.errors.empty? && @upload.save(validate: @opts[:validate])
 
-        if url.present?
-          @upload.url = url
-          @upload.save!
+      should_move = false
+      upload_changed = \
+        if external_upload_too_big
+          false
         else
-          @upload.errors.add(:url, I18n.t("upload.store_failure", upload_id: @upload.id, user_id: user_id))
+          Upload.generate_digest(@file) != sha1_before_changes
         end
+
+      if @opts[:existing_external_upload_key] && Discourse.store.external?
+        should_move = external_upload_too_big || !upload_changed
+      end
+
+      if should_move
+        # move the file in the store instead of reuploading
+        url = Discourse.store.move_existing_stored_upload(@opts[:existing_external_upload_key], @upload)
+      else
+        # store the file and update its url
+        File.open(@file.path) do |f|
+          url = Discourse.store.store_upload(f, @upload)
+        end
+      end
+
+      if url.present?
+        @upload.url = url
+        @upload.save!(validate: @opts[:validate])
+      else
+        @upload.errors.add(:url, I18n.t("upload.store_failure", upload_id: @upload.id, user_id: user_id))
       end
 
       if @upload.errors.empty? && is_image && @opts[:type] == "avatar" && @upload.extension != "svg"
@@ -170,7 +231,7 @@ class UploadCreator
       @upload.errors.add(:base, I18n.t("upload.images.not_supported_or_corrupted"))
     elsif filesize <= 0
       @upload.errors.add(:base, I18n.t("upload.empty"))
-    elsif pixels == 0
+    elsif pixels == 0 && @image_info.type.to_s != 'svg'
       @upload.errors.add(:base, I18n.t("upload.images.size_not_found"))
     elsif max_image_pixels > 0 && pixels >= max_image_pixels * 2
       @upload.errors.add(:base, I18n.t("upload.images.larger_than_x_megapixels", max_image_megapixels: SiteSetting.max_image_megapixels * 2))
@@ -190,6 +251,7 @@ class UploadCreator
   MIN_CONVERT_TO_JPEG_SAVING_RATIO = 0.70
 
   def convert_to_jpeg!
+    return if @opts[:for_site_setting]
     return if filesize < MIN_CONVERT_TO_JPEG_BYTES_SAVED
 
     jpeg_tempfile = Tempfile.new(["image", ".jpg"])
@@ -250,6 +312,7 @@ class UploadCreator
     extract_image_info!
   end
 
+  MAX_CONVERT_FORMAT_SECONDS = 20
   def execute_convert(from, to, opts = {})
     command = [
       "convert",
@@ -263,13 +326,18 @@ class UploadCreator
     command << "-quality" << opts[:quality].to_s if opts[:quality]
     command << to
 
-    Discourse::Utils.execute_command(*command, failure_message: I18n.t("upload.png_to_jpg_conversion_failure_message"))
+    Discourse::Utils.execute_command(
+      *command,
+      failure_message: I18n.t("upload.png_to_jpg_conversion_failure_message"),
+      timeout: MAX_CONVERT_FORMAT_SECONDS
+    )
   end
 
   def should_alter_quality?
     return false if animated?
 
-    @upload.target_image_quality(@file.path, SiteSetting.recompress_original_jpg_quality).present?
+    desired_quality = @image_info.type == :png ? SiteSetting.png_to_jpg_quality : SiteSetting.recompress_original_jpg_quality
+    @upload.target_image_quality(@file.path, desired_quality).present?
   end
 
   def should_downsize?
@@ -339,13 +407,14 @@ class UploadCreator
     @image_info.orientation.to_i > 1
   end
 
+  MAX_FIX_ORIENTATION_TIME = 5
   def fix_orientation!
     path = @file.path
 
     OptimizedImage.ensure_safe_paths!(path)
     path = OptimizedImage.prepend_decoder!(path, nil, filename: "image.#{@image_info.type}")
 
-    Discourse::Utils.execute_command('convert', path, '-auto-orient', path)
+    Discourse::Utils.execute_command('convert', path, '-auto-orient', path, timeout: MAX_FIX_ORIENTATION_TIME)
 
     extract_image_info!
   end
@@ -393,12 +462,10 @@ class UploadCreator
     OptimizedImage.ensure_safe_paths!(@file.path)
     FileHelper.optimize_image!(@file.path)
     extract_image_info!
-  rescue ImageOptim::TimeoutExceeded
-    Rails.logger.warn("ImageOptim timed out while optimizing #{@filename}")
   end
 
   def filesize
-    File.size?(@file.path).to_i
+    @filesize || File.size?(@file.path).to_i
   end
 
   def max_image_size
@@ -424,7 +491,6 @@ class UploadCreator
     @upload.for_export          = true if @opts[:for_export]
     @upload.for_site_setting    = true if @opts[:for_site_setting]
     @upload.for_gravatar        = true if @opts[:for_gravatar]
-    @upload.secure = UploadSecurity.new(@upload, @opts).should_be_secure?
   end
 
   private
@@ -444,7 +510,7 @@ class UploadCreator
         OptimizedImage.ensure_safe_paths!(@file.path)
 
         command = ["identify", "-format", "%n\\n", @file.path]
-        frames = Discourse::Utils.execute_command(*command).to_i rescue 1
+        frames = Discourse::Utils.execute_command(*command, timeout: Upload::MAX_IDENTIFY_SECONDS).to_i rescue 1
 
         frames > 1
       else
@@ -453,4 +519,7 @@ class UploadCreator
     end
   end
 
+  def generate_fake_sha1_hash
+    SecureRandom.hex(20)
+  end
 end

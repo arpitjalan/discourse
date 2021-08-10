@@ -8,10 +8,6 @@ class ApiKeyScope < ActiveRecord::Base
     def list_actions
       actions = %w[list#category_feed]
 
-      TopTopic.periods.each do |p|
-        actions.concat(["list#category_top_#{p}", "list#top_#{p}", "list#top_#{p}_feed"])
-      end
-
       %i[latest unread new top].each { |f| actions.concat(["list#category_#{f}", "list##{f}"]) }
 
       actions
@@ -33,15 +29,19 @@ class ApiKeyScope < ActiveRecord::Base
           },
           wordpress: { actions: %w[topics#wordpress], params: %i[topic_id] }
         },
+        posts: {
+          edit: { actions: %w[posts#update], params: %i[id] }
+        },
         users: {
           bookmarks: { actions: %w[users#bookmarks], params: %i[username] },
           sync_sso: { actions: %w[admin/users#sync_sso], params: %i[sso sig] },
-          show: { actions: %w[users#show], params: %i[username external_id] },
+          show: { actions: %w[users#show], params: %i[username external_id external_provider] },
           check_emails: { actions: %w[users#check_emails], params: %i[username] },
           update: { actions: %w[users#update], params: %i[username] },
           log_out: { actions: %w[admin/users#log_out] },
           anonymize: { actions: %w[admin/users#anonymize] },
           delete: { actions: %w[admin/users#destroy] },
+          list: { actions: %w[admin/users#index] },
         },
         email: {
           receive_emails: { actions: %w[admin/email#handle_mail] }
@@ -59,12 +59,18 @@ class ApiKeyScope < ActiveRecord::Base
 
     def scope_mappings
       plugin_mappings = DiscoursePluginRegistry.api_key_scope_mappings
+      return default_mappings if plugin_mappings.empty?
 
-      default_mappings.tap do |mappings|
-        plugin_mappings.each do |mapping|
-          mapping[:urls] = find_urls(mapping[:actions])
+      default_mappings.deep_dup.tap do |mappings|
 
-          mappings.deep_merge!(mapping)
+        plugin_mappings.each do |resource|
+          resource.each_value do |resource_actions|
+            resource_actions.each_value do |action_data|
+              action_data[:urls] = find_urls(action_data[:actions])
+            end
+          end
+
+          mappings.deep_merge!(resource)
         end
       end
     end
@@ -78,7 +84,9 @@ class ApiKeyScope < ActiveRecord::Base
         excluded_paths = %w[/new-topic /new-message /exception]
 
         memo.tap do |m|
-          m << path if actions.include?(action) && api_supported_path && !excluded_paths.include?(path)
+          if actions.include?(action) && api_supported_path && !excluded_paths.include?(path)
+            m << "#{path} (#{route.verb})"
+          end
         end
       end
     end

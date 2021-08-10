@@ -21,8 +21,17 @@ const DiscoveryTopicsListComponent = Component.extend(UrlRefresh, LoadMore, {
     }
   },
 
-  @observes("topicTrackingState.states")
-  _updateTopics() {
+  @on("didInsertElement")
+  _monitorTrackingState() {
+    this.topicTrackingState.onStateChange(() => this._updateTrackingTopics());
+  },
+
+  @on("willDestroyElement")
+  _removeTrackingStateChangeMonitor() {
+    this.topicTrackingState.offStateChange(this.stateChangeCallbackId);
+  },
+
+  _updateTrackingTopics() {
     this.topicTrackingState.updateTopics(this.model.topics);
   },
 
@@ -38,9 +47,17 @@ const DiscoveryTopicsListComponent = Component.extend(UrlRefresh, LoadMore, {
   actions: {
     loadMore() {
       this.documentTitle.updateContextCount(0);
-      this.model.loadMore().then((hasMoreResults) => {
+      this.model.loadMore().then(({ moreTopicsUrl, newTopics } = {}) => {
+        if (
+          newTopics &&
+          newTopics.length &&
+          this.autoAddTopicsToBulkSelect &&
+          this.bulkSelectEnabled
+        ) {
+          this.addTopicsToBulkSelect(newTopics);
+        }
         schedule("afterRender", () => this.saveScrollPosition());
-        if (hasMoreResults && $(window).height() >= $(document).height()) {
+        if (moreTopicsUrl && $(window).height() >= $(document).height()) {
           this.send("loadMore");
         }
       });

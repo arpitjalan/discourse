@@ -1,5 +1,9 @@
-import { acceptance, queryAll } from "discourse/tests/helpers/qunit-helpers";
-import { click, fillIn, visit } from "@ember/test-helpers";
+import {
+  acceptance,
+  exists,
+  queryAll,
+} from "discourse/tests/helpers/qunit-helpers";
+import { click, currentURL, fillIn, visit } from "@ember/test-helpers";
 import selectKit from "discourse/tests/helpers/select-kit-helper";
 import { test } from "qunit";
 
@@ -59,6 +63,40 @@ acceptance("Admin - User Index", function (needs) {
     );
   });
 
+  test("shows the number of post edits", async function (assert) {
+    await visit("/admin/users/1/eviltrout");
+
+    assert.equal(queryAll(".post-edits-count .value").text().trim(), "6");
+
+    assert.ok(
+      exists(".post-edits-count .controls .btn.btn-icon"),
+      "View edits button exists"
+    );
+  });
+
+  test("a link to view post edits report exists", async function (assert) {
+    await visit("/admin/users/1/eviltrout");
+
+    let filter = encodeURIComponent('{"editor":"eviltrout"}');
+
+    await click(".post-edits-count .controls .btn.btn-icon");
+
+    assert.equal(
+      currentURL(),
+      `/admin/reports/post_edits?filters=${filter}`,
+      "it redirects to the right admin report"
+    );
+  });
+
+  test("hides the 'view Edits' button if the count is zero", async function (assert) {
+    await visit("/admin/users/2/sam");
+
+    assert.ok(
+      !exists(".post-edits-count .controls .btn.btn-icon"),
+      "View Edits button not present"
+    );
+  });
+
   test("will clear unsaved groups when switching user", async function (assert) {
     await visit("/admin/users/2/sam");
 
@@ -81,9 +119,8 @@ acceptance("Admin - User Index", function (needs) {
       "the name should be correct"
     );
 
-    assert.equal(
-      queryAll('.group-chooser span[title="Macdonald"]').length,
-      0,
+    assert.ok(
+      !exists('.group-chooser span[title="Macdonald"]'),
       "group should not be set"
     );
   });

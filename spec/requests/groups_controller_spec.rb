@@ -411,6 +411,7 @@ describe GroupsController do
 
       expect(response.status).to eq(200)
 
+      expect(response.body).to have_tag "title", text: "#{group.name} - #{SiteSetting.title}"
       expect(response.body).to have_tag(:meta, with: {
         property: 'og:title', content: group.name
       })
@@ -713,7 +714,8 @@ describe GroupsController do
               name: 'testing',
               tracking_category_ids: [category.id],
               tracking_tags: [tag.name]
-            }
+            },
+            update_existing_users: false
           }
         end.to change { GroupHistory.count }.by(13)
 
@@ -721,9 +723,9 @@ describe GroupsController do
 
         group.reload
 
-        expect(group.flair_bg_color).to eq('FFF')
+        expect(group.flair_bg_color).to eq(nil)
         expect(group.flair_color).to eq('BBB')
-        expect(group.flair_url).to eq('fa-adjust')
+        expect(group.flair_url).to eq(nil)
         expect(group.bio_raw).to eq('testing')
         expect(group.full_name).to eq('awesome team')
         expect(group.public_admission).to eq(true)
@@ -782,7 +784,8 @@ describe GroupsController do
             members_visibility_level: 3,
             tracking_category_ids: [category.id],
             tracking_tags: [tag.name]
-          }
+          },
+          update_existing_users: false
         }
 
         expect(response.status).to eq(200)
@@ -815,7 +818,9 @@ describe GroupsController do
 
         put "/groups/#{group.id}.json", params: {
           group: {
+            flair_bg_color: 'FFF',
             flair_color: 'BBB',
+            flair_icon: 'fa-adjust',
             name: 'testing',
             visibility_level: 1,
             mentionable_level: 1,
@@ -829,7 +834,10 @@ describe GroupsController do
         expect(response.status).to eq(200)
 
         group.reload
-        expect(group.flair_color).to eq(nil)
+        expect(group.flair_bg_color).to eq(nil)
+        expect(group.flair_color).to eq('BBB')
+        expect(group.flair_icon).to eq('fa-adjust')
+        expect(group.flair_url).to eq(nil)
         expect(group.name).to eq('admins')
         expect(group.visibility_level).to eq(1)
         expect(group.mentionable_level).to eq(1)
@@ -846,6 +854,75 @@ describe GroupsController do
 
         expect(event[:event_name]).to eq(:group_updated)
         expect(event[:params].first).to eq(group)
+      end
+
+      context "user default notifications" do
+        it "should update default notification preference for existing users" do
+          user1 = Fabricate(:user)
+          user2 = Fabricate(:user)
+          CategoryUser.create!(user: user1, category: category, notification_level: 4)
+          TagUser.create!(user: user1, tag: tag, notification_level: 4)
+          TagUser.create!(user: user2, tag: tag, notification_level: 4)
+          group.add(user1)
+          group.add(user2)
+
+          put "/groups/#{group.id}.json", params: {
+            group: {
+              flair_color: 'BBB',
+              name: 'testing',
+              incoming_email: 'test@mail.org',
+              primary_group: true,
+              automatic_membership_email_domains: 'test.org',
+              grant_trust_level: 2,
+              visibility_level: 1,
+              members_visibility_level: 3,
+              tracking_category_ids: [category.id],
+              tracking_tags: [tag.name]
+            }
+          }
+
+          expect(response.status).to eq(200)
+          expect(response.parsed_body["user_count"]).to eq(group.group_users.count - 1)
+
+          put "/groups/#{group.id}.json", params: {
+            group: {
+              flair_color: 'BBB',
+              name: 'testing',
+              incoming_email: 'test@mail.org',
+              primary_group: true,
+              automatic_membership_email_domains: 'test.org',
+              grant_trust_level: 2,
+              visibility_level: 1,
+              members_visibility_level: 3,
+              tracking_category_ids: [category.id],
+              tracking_tags: [tag.name]
+            },
+            update_existing_users: true
+          }
+
+          expect(response.status).to eq(200)
+          expect(response.parsed_body["success"]).to eq("OK")
+
+          put "/groups/#{group.id}.json", params: {
+            group: {
+              flair_color: 'BBB',
+              name: 'testing',
+              incoming_email: 'test@mail.org',
+              primary_group: true,
+              automatic_membership_email_domains: 'test.org',
+              grant_trust_level: 2,
+              visibility_level: 1,
+              members_visibility_level: 3,
+              watching_category_ids: [category.id],
+              tracking_tags: [tag.name]
+            },
+            update_existing_users: true
+          }
+
+          expect(response.status).to eq(200)
+          expect(response.parsed_body["success"]).to eq("OK")
+          expect(CategoryUser.exists?(user: user2, category: category, notification_level: 3)).to be_truthy
+        end
       end
     end
 
@@ -884,7 +961,8 @@ describe GroupsController do
             members_visibility_level: 3,
             tracking_category_ids: [category.id],
             tracking_tags: [tag.name]
-          }
+          },
+          update_existing_users: false
         }
 
         expect(response.status).to eq(200)
@@ -916,6 +994,9 @@ describe GroupsController do
 
         put "/groups/#{group.id}.json", params: {
           group: {
+            flair_bg_color: 'FFF',
+            flair_color: 'BBB',
+            flair_icon: 'fa-adjust',
             mentionable_level: 1,
             messageable_level: 1,
             default_notification_level: 1
@@ -925,7 +1006,10 @@ describe GroupsController do
         expect(response.status).to eq(200)
 
         group.reload
-        expect(group.flair_color).to eq(nil)
+        expect(group.flair_bg_color).to eq(nil)
+        expect(group.flair_color).to eq('BBB')
+        expect(group.flair_icon).to eq('fa-adjust')
+        expect(group.flair_url).to eq(nil)
         expect(group.name).to eq('trust_level_4')
         expect(group.mentionable_level).to eq(1)
         expect(group.messageable_level).to eq(1)
@@ -1093,7 +1177,7 @@ describe GroupsController do
     fab!(:group) { Fabricate(:group) }
 
     context 'when user is not signed in' do
-      it 'should be fobidden' do
+      it 'should be forbidden' do
         put "/groups/#{group.id}/members.json", params: { usernames: "bob" }
         expect(response).to be_forbidden
 
@@ -1102,7 +1186,7 @@ describe GroupsController do
       end
 
       context 'public group' do
-        it 'should be fobidden' do
+        it 'should be forbidden' do
           group.update!(
             public_admission: true,
             public_exit: true
@@ -1152,11 +1236,11 @@ describe GroupsController do
   describe "membership edits" do
     fab!(:admin) { Fabricate(:admin) }
 
-    before do
-      sign_in(admin)
-    end
-
     context '#add_members' do
+      before do
+        sign_in(admin)
+      end
+
       it "can make incremental adds" do
         user2 = Fabricate(:user)
 
@@ -1200,6 +1284,22 @@ describe GroupsController do
         expect(response.status).to eq(200)
 
         expect(Topic.last.topic_users.map(&:user_id)).to include(Discourse::SYSTEM_USER_ID, user2.id)
+      end
+
+      it 'does not add users without sufficient permission' do
+        group.add_owner(user)
+        sign_in(user)
+
+        put "/groups/#{group.id}/members.json", params: { usernames: Fabricate(:user).username }
+        expect(response.status).to eq(200)
+      end
+
+      it 'does not send invites if user cannot invite' do
+        group.add_owner(user)
+        sign_in(user)
+
+        put "/groups/#{group.id}/members.json", params: { emails: "test@example.com" }
+        expect(response.status).to eq(403)
       end
 
       context "is able to add several members to a group" do
@@ -1246,6 +1346,23 @@ describe GroupsController do
           expect(response.status).to eq(200)
         end
 
+        it 'sends invites to new users and ignores existing users' do
+          user1.update!(username: 'john')
+          user2.update!(username: 'alice')
+          [user1, user2].each { |user| group.add(user) }
+          emails = ["something@gmail.com", "anotherone@yahoo.com"]
+          put "/groups/#{group.id}/members.json",
+            params: { user_emails: [user1.email, user2.email].join(","), emails: emails.join(",") }
+
+          expect(response.status).to eq(200)
+          expect(response.parsed_body["emails"]).to eq(emails)
+
+          emails.each do |email|
+            invite = Invite.find_by(email: email)
+            expect(invite.groups).to eq([group])
+          end
+        end
+
         it 'displays warning when all members already exists' do
           user1.update!(username: 'john')
           user2.update!(username: 'alice')
@@ -1267,11 +1384,7 @@ describe GroupsController do
         end
 
         it 'display error when try to add to many users at once' do
-          begin
-            old_constant = GroupsController.const_get("ADD_MEMBERS_LIMIT")
-            GroupsController.send(:remove_const, "ADD_MEMBERS_LIMIT")
-            GroupsController.const_set("ADD_MEMBERS_LIMIT", 1)
-
+          stub_const(GroupsController, "ADD_MEMBERS_LIMIT", 1) do
             expect do
               put "/groups/#{group.id}/members.json",
                 params: { user_emails: [user1.email, user2.email].join(",") }
@@ -1281,11 +1394,8 @@ describe GroupsController do
 
             expect(response.parsed_body["errors"]).to include(I18n.t(
               "groups.errors.adding_too_many_users",
-              limit: 1
+              count: 1
             ))
-          ensure
-            GroupsController.send(:remove_const, "ADD_MEMBERS_LIMIT")
-            GroupsController.const_set("ADD_MEMBERS_LIMIT", old_constant)
           end
         end
       end
@@ -1346,6 +1456,17 @@ describe GroupsController do
         end
       end
 
+      it "adds known users by email when DiscourseConnect is enabled" do
+        SiteSetting.discourse_connect_url = "https://www.example.com/sso"
+        SiteSetting.enable_discourse_connect = true
+
+        expect do
+          put "/groups/#{group.id}/members.json", params: { emails: other_user.email }
+        end.to change { group.users.count }.by(1)
+
+        expect(response.status).to eq(200)
+      end
+
       it "will find users by email, and invite the correct user" do
         new_user = Fabricate(:user)
         expect(new_user.group_ids.include?(group.id)).to eq(false)
@@ -1358,10 +1479,7 @@ describe GroupsController do
       it "will invite the user if their username and email are both invited" do
         new_user = Fabricate(:user)
         put "/groups/#{group.id}/members.json", params: { usernames: new_user.username, emails: new_user.email }
-
         expect(response.status).to eq(200)
-        body = response.parsed_body
-
         expect(new_user.reload.group_ids.include?(group.id)).to eq(true)
       end
 
@@ -1391,30 +1509,65 @@ describe GroupsController do
             expect(group_history.target_user).to eq(other_user)
           end
         end
+      end
+    end
 
-        it 'should allow a user to join the group' do
-          sign_in(other_user)
+    context '#join' do
+      let(:public_group) { Fabricate(:public_group) }
 
-          expect do
-            put "/groups/#{group.id}/members.json",
-              params: { usernames: other_user.username }
-          end.to change { group.users.count }.by(1)
+      it 'should allow a user to join a public group' do
+        sign_in(user)
 
-          expect(response.status).to eq(200)
-        end
+        expect do
+          put "/groups/#{public_group.id}/join.json"
+        end.to change { public_group.users.count }.by(1)
 
-        it 'should not allow an underprivilege user to add another user to a group' do
-          sign_in(user)
+        expect(response.status).to eq(204)
+      end
 
-          put "/groups/#{group.id}/members.json",
-            params: { usernames: other_user.username }
+      it 'should not allow a user to join a nonpublic group' do
+        sign_in(user)
 
-          expect(response).to be_forbidden
-        end
+        expect do
+          put "/groups/#{group.id}/join.json"
+        end.not_to change { group.users.count }
+
+        expect(response).to be_forbidden
+      end
+
+      it 'should not allow an anonymous user to call the join method' do
+        expect do
+          put "/groups/#{group.id}/join.json"
+        end.not_to change { group.users.count }
+
+        expect(response).to be_forbidden
+      end
+
+      it 'the join method is idempotent' do
+        sign_in(user)
+
+        expect do
+          put "/groups/#{public_group.id}/join.json"
+        end.to change { public_group.users.count }.by(1)
+        expect(response.status).to eq(204)
+
+        expect do
+          put "/groups/#{public_group.id}/join.json"
+        end.not_to change { public_group.users.count }
+        expect(response.status).to eq(204)
+
+        expect do
+          put "/groups/#{public_group.id}/join.json"
+        end.not_to change { public_group.users.count }
+        expect(response.status).to eq(204)
       end
     end
 
     context '#remove_member' do
+      before do
+        sign_in(admin)
+      end
+
       it "cannot remove members from automatic groups" do
         group.update!(automatic: true)
 
@@ -1424,8 +1577,6 @@ describe GroupsController do
 
       it "raises an error if user to be removed is not found" do
         delete "/groups/#{group.id}/members.json", params: { user_id: -10 }
-
-        response_body = response.parsed_body
         expect(response.status).to eq(400)
       end
 
@@ -1496,18 +1647,7 @@ describe GroupsController do
             end
           end
 
-          it 'should allow a user to leave a group' do
-            sign_in(other_user)
-
-            expect do
-              delete "/groups/#{group.id}/members.json",
-              params: { username: other_user.username }
-            end.to change { group.users.count }.by(-1)
-
-            expect(response.status).to eq(200)
-          end
-
-          it 'should not allow a underprivilege user to leave a group for another user' do
+          it 'should not allow a underprivileged user to leave a group for another user' do
             sign_in(user)
 
             delete "/groups/#{group.id}/members.json",
@@ -1571,6 +1711,57 @@ describe GroupsController do
         end
       end
     end
+
+    context '#leave' do
+      let(:group_with_public_exit) { Fabricate(:group, public_exit: true, users: [user]) }
+
+      it 'should allow a user to leave a group with public exit' do
+        sign_in(user)
+
+        expect do
+          delete "/groups/#{group_with_public_exit.id}/leave.json"
+        end.to change { group_with_public_exit.users.count }.by(-1)
+
+        expect(response.status).to eq(204)
+      end
+
+      it 'should not allow a user to leave a group without public exit' do
+        sign_in(user)
+
+        expect do
+          delete "/groups/#{group.id}/leave.json"
+        end.not_to change { group.users.count }
+
+        expect(response).to be_forbidden
+      end
+
+      it 'should not allow an anonymous user to call the leave method' do
+        expect do
+          delete "/groups/#{group_with_public_exit.id}/leave.json"
+        end.not_to change { group_with_public_exit.users.count }
+
+        expect(response).to be_forbidden
+      end
+
+      it 'the leave method is idempotent' do
+        sign_in(user)
+
+        expect do
+          delete "/groups/#{group_with_public_exit.id}/leave.json"
+        end.to change { group_with_public_exit.users.count }.by(-1)
+        expect(response.status).to eq(204)
+
+        expect do
+          delete "/groups/#{group_with_public_exit.id}/leave.json"
+        end.not_to change { group_with_public_exit.users.count }
+        expect(response.status).to eq(204)
+
+        expect do
+          delete "/groups/#{group_with_public_exit.id}/leave.json"
+        end.not_to change { group_with_public_exit.users.count }
+        expect(response.status).to eq(204)
+      end
+    end
   end
 
   describe "#handle_membership_request" do
@@ -1580,7 +1771,7 @@ describe GroupsController do
     end
 
     it "sends a private message when accepted" do
-      group_request = GroupRequest.create!(group: group, user: other_user)
+      GroupRequest.create!(group: group, user: other_user)
       expect { put "/groups/#{group.id}/handle_membership_request.json", params: { user_id: other_user.id, accept: true } }
         .to change { Topic.count }.by(1)
         .and change { Post.count }.by(1)
@@ -1953,6 +2144,118 @@ describe GroupsController do
       expect(response.parsed_body.map { |permission| permission["category"]["name"] }).to eq(
         ["Abc", "Hello", "New Cat", "Three"]
       )
+    end
+  end
+
+  describe "#test_email_settings" do
+    let(:params) do
+      {
+        protocol: protocol,
+        ssl: ssl,
+        port: port,
+        host: host,
+        username: username,
+        password: password
+      }
+    end
+
+    before do
+      sign_in(user)
+      group.group_users.where(user: user).last.update(owner: user)
+    end
+
+    context "validating smtp" do
+      let(:protocol) { "smtp" }
+      let(:username) { "test@gmail.com" }
+      let(:password) { "password" }
+      let(:domain) { nil }
+      let(:ssl) { true }
+      let(:host) { "smtp.somemailsite.com" }
+      let(:port) { 587 }
+
+      context "when an error is raised" do
+        before do
+          EmailSettingsValidator.expects(:validate_smtp).raises(Net::SMTPAuthenticationError, "Invalid credentials")
+        end
+        it "uses the friendly error message functionality to return the message to the user" do
+          post "/groups/#{group.id}/test_email_settings.json", params: params
+          expect(response.status).to eq(422)
+          expect(response.parsed_body["errors"]).to include(I18n.t("email_settings.smtp_authentication_error"))
+        end
+      end
+    end
+
+    context "validating imap" do
+      let(:protocol) { "imap" }
+      let(:username) { "test@gmail.com" }
+      let(:password) { "password" }
+      let(:domain) { nil }
+      let(:ssl) { true }
+      let(:host) { "imap.somemailsite.com" }
+      let(:port) { 993 }
+
+      it "validates with the correct TLS settings" do
+        EmailSettingsValidator.expects(:validate_imap).with(
+          has_entry(ssl: true)
+        )
+        post "/groups/#{group.id}/test_email_settings.json", params: params
+        expect(response.status).to eq(200)
+      end
+
+      context "when an error is raised" do
+        before do
+          EmailSettingsValidator.expects(:validate_imap).raises(
+            Net::IMAP::NoResponseError, stub(data: stub(text: "Invalid credentials"))
+          )
+        end
+        it "uses the friendly error message functionality to return the message to the user" do
+          post "/groups/#{group.id}/test_email_settings.json", params: params
+          expect(response.status).to eq(422)
+          expect(response.parsed_body["errors"]).to include(I18n.t("email_settings.imap_authentication_error"))
+        end
+      end
+    end
+
+    describe "global param validation and rate limit" do
+      let(:protocol) { "smtp" }
+      let(:host) { "smtp.gmail.com" }
+      let(:port) { 587 }
+      let(:username) { "test@gmail.com" }
+      let(:password) { "password" }
+      let(:ssl) { true }
+
+      context "when the protocol is not accepted" do
+        let(:protocol) { "sigma" }
+        it "raises an invalid params error" do
+          post "/groups/#{group.id}/test_email_settings.json", params: params
+          expect(response.status).to eq(400)
+          expect(response.parsed_body["errors"].first).to match(/Valid protocols to test are smtp and imap/)
+        end
+      end
+
+      context "user does not have access to the group" do
+        before do
+          group.group_users.destroy_all
+        end
+        it "errors if the user does not have access to the group" do
+          post "/groups/#{group.id}/test_email_settings.json", params: params
+
+          expect(response.status).to eq(403)
+        end
+      end
+
+      context "rate limited" do
+        it "rate limits anon searches per user" do
+          RateLimiter.enable
+          RateLimiter.clear_all!
+
+          5.times do
+            post "/groups/#{group.id}/test_email_settings.json", params: params
+          end
+          post "/groups/#{group.id}/test_email_settings.json", params: params
+          expect(response.status).to eq(429)
+        end
+      end
     end
   end
 end

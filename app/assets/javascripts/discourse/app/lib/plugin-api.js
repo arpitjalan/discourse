@@ -1,8 +1,13 @@
 import ComposerEditor, {
   addComposerUploadHandler,
   addComposerUploadMarkdownResolver,
+  addComposerUploadProcessor,
 } from "discourse/components/composer-editor";
-import { addButton, removeButton } from "discourse/widgets/post-menu";
+import {
+  addButton,
+  apiExtraButtons,
+  removeButton,
+} from "discourse/widgets/post-menu";
 import {
   addExtraIconRenderer,
   replaceCategoryLinkRenderer,
@@ -36,6 +41,7 @@ import DiscourseBanner from "discourse/components/discourse-banner";
 import KeyboardShortcuts from "discourse/lib/keyboard-shortcuts";
 import Sharing from "discourse/lib/sharing";
 import { addAdvancedSearchOptions } from "discourse/components/search-advanced-options";
+import { addCardClickListenerSelector } from "discourse/mixins/card-contents-base";
 import { addCategorySortCriteria } from "discourse/components/edit-category-settings";
 import { addDecorator } from "discourse/widgets/post-cooked";
 import { addDiscoveryQueryParam } from "discourse/controllers/discovery-sortable";
@@ -44,12 +50,14 @@ import { addGTMPageChangedCallback } from "discourse/lib/page-tracker";
 import { addGlobalNotice } from "discourse/components/global-notice";
 import { addNavItem } from "discourse/models/nav-item";
 import { addPluginOutletDecorator } from "discourse/components/plugin-connector";
+import { addPluginReviewableParam } from "discourse/components/reviewable-item";
 import { addPopupMenuOptionsCallback } from "discourse/controllers/composer";
 import { addPostClassesCallback } from "discourse/widgets/post";
 import { addPostSmallActionIcon } from "discourse/widgets/post-small-action";
 import { addQuickAccessProfileItem } from "discourse/widgets/quick-access-profile";
 import { addTagsHtmlCallback } from "discourse/lib/render-tags";
 import { addToolbarCallback } from "discourse/components/d-editor";
+import { addTopicParticipantClassesCallback } from "discourse/widgets/topic-map";
 import { addTopicTitleDecorator } from "discourse/components/topic-title";
 import { addUserMenuGlyph } from "discourse/widgets/user-menu";
 import { addUsernameSelectorDecorator } from "discourse/helpers/decorate-username-selector";
@@ -68,9 +76,12 @@ import { registerHighlightJSLanguage } from "discourse/lib/highlight-syntax";
 import { registerTopicFooterButton } from "discourse/lib/register-topic-footer-button";
 import { replaceFormatter } from "discourse/lib/utilities";
 import { replaceTagRenderer } from "discourse/lib/render-tag";
+import { setNewCategoryDefaultColors } from "discourse/routes/new-category";
+import { addSearchResultsCallback } from "discourse/lib/search";
+import { addSearchSuggestion } from "discourse/widgets/search-menu-results";
 
 // If you add any methods to the API ensure you bump up this number
-const PLUGIN_API_VERSION = "0.11.1";
+const PLUGIN_API_VERSION = "0.12.1";
 
 class PluginApi {
   constructor(version, container) {
@@ -421,6 +432,7 @@ class PluginApi {
    * ```
    **/
   addPostMenuButton(name, callback) {
+    apiExtraButtons[name] = callback;
     addButton(name, callback);
   }
 
@@ -737,10 +749,10 @@ class PluginApi {
    * example:
    *
    * api.addUserMenuGlyph({
-   *    label: 'awesome.label',
+   *    title: 'awesome.label',
    *    className: 'my-class',
    *    icon: 'my-icon',
-   *    href: `/some/path`
+   *    data: { url: `/some/path` },
    * });
    *
    */
@@ -754,10 +766,22 @@ class PluginApi {
    *
    * Example:
    *
-   * addPostClassesCallback((atts) => {if (atts.post_number == 1) return ["first"];})
+   * addPostClassesCallback((attrs) => {if (attrs.post_number == 1) return ["first"];})
    **/
   addPostClassesCallback(callback) {
     addPostClassesCallback(callback);
+  }
+
+  /**
+   * Adds a callback to be called before rendering a topic participant that
+   * that returns custom classes to add to the participant element
+   *
+   * Example:
+   *
+   * addTopicParticipantClassesCallback((attrs) => {if (attrs.primary_group_name == "moderator") return ["important-participant"];})
+   **/
+  addTopicParticipantClassesCallback(callback) {
+    addTopicParticipantClassesCallback(callback);
   }
 
   /**
@@ -932,6 +956,29 @@ class PluginApi {
   }
 
   /**
+   * Registers a pre-processor for file uploads
+   * See https://github.com/blueimp/jQuery-File-Upload/wiki/Options#file-processing-options
+   *
+   * Useful for transforming to-be uploaded files client-side
+   *
+   * Example:
+   *
+   * api.addComposerUploadProcessor({action: 'myFileTransformation'}, {
+   *    myFileTransformation: function (data, options) {
+   *      let p = new Promise((resolve, reject) => {
+   *        let file = data.files[data.index];
+   *        console.log(`Transforming ${file.name}`);
+   *        // do work...
+   *        resolve(data);
+   *      });
+   *      return p;
+   * });
+   */
+  addComposerUploadProcessor(queueItem, actionItem) {
+    addComposerUploadProcessor(queueItem, actionItem);
+  }
+
+  /**
    * Registers a function to generate Markdown after a file has been uploaded.
    *
    * Example:
@@ -1041,6 +1088,15 @@ class PluginApi {
    */
   addCategorySortCriteria(criteria) {
     addCategorySortCriteria(criteria);
+  }
+
+  /**
+   * Card contents mixin will add a listener to elements matching this selector
+   * that will open card contents when a mention of div with the correct data attribute
+   * is clicked
+   */
+  addCardClickListenerSelector(selector) {
+    addCardClickListenerSelector(selector);
   }
 
   /**
@@ -1221,17 +1277,83 @@ class PluginApi {
   addSaveableUserOptionField(fieldName) {
     addSaveableUserOptionField(fieldName);
   }
-}
+  addPluginReviewableParam(reviewableType, param) {
+    addPluginReviewableParam(reviewableType, param);
+  }
 
-let _pluginv01;
+  /**
+   * Change the default category background and text colors in the
+   * category creation modal.
+   *
+   * ```
+   * api.setNewCategoryDefaultColors(
+   *   'FFFFFF', // background color
+   *   '000000'  // text color
+   *  )
+   * ```
+   *
+   **/
+  setNewCategoryDefaultColors(backgroundColor, textColor) {
+    setNewCategoryDefaultColors(backgroundColor, textColor);
+  }
+
+  /**
+   * Add a callback to modify search results before displaying them.
+   *
+   * ```
+   * api.addSearchResultsCallback((results) => {
+   *   results.topics.push(Topic.create({ ... }));
+   *   return results;
+   * });
+   * ```
+   *
+   */
+  addSearchResultsCallback(callback) {
+    addSearchResultsCallback(callback);
+  }
+
+  /**
+   * Add a suggestion shortcut to search menu panel.
+   *
+   * ```
+   * api.addSearchSuggestion("in:assigned");
+   * ```
+   *
+   */
+  addSearchSuggestion(value) {
+    addSearchSuggestion(value);
+  }
+
+  /**
+   * Calls a method on a mounted widget whenever an app event happens.
+   *
+   * For example, if you have a widget with a `key` of `cool-widget` that lives inside the
+   * `site-header` component, and you wanted it to respond to `thing:happened`, you could do this:
+   *
+   * ```
+   * api.dispatchWidgetAppEvent('site-header', 'cool-widget', 'thing:happened');
+   * ```
+   *
+   * In this case, the `cool-widget` must have a method called `thingHappened`. The event name
+   * is converted to camelCase and used as the method name for you.
+   */
+  dispatchWidgetAppEvent(mountedComponent, widgetKey, appEvent) {
+    this.modifyClass(`component:${mountedComponent}`, {
+      didInsertElement() {
+        this._super();
+        this.dispatch(appEvent, widgetKey);
+      },
+    });
+  }
+}
 
 // from http://stackoverflow.com/questions/6832596/how-to-compare-software-version-number-using-js-only-number
 function cmpVersions(a, b) {
-  var i, diff;
-  var regExStrip0 = /(\.0+)+$/;
-  var segmentsA = a.replace(regExStrip0, "").split(".");
-  var segmentsB = b.replace(regExStrip0, "").split(".");
-  var l = Math.min(segmentsA.length, segmentsB.length);
+  let i, diff;
+  let regExStrip0 = /(\.0+)+$/;
+  let segmentsA = a.replace(regExStrip0, "").split(".");
+  let segmentsB = b.replace(regExStrip0, "").split(".");
+  let l = Math.min(segmentsA.length, segmentsB.length);
 
   for (i = 0; i < l; i++) {
     diff = parseInt(segmentsA[i], 10) - parseInt(segmentsB[i], 10);
@@ -1244,16 +1366,24 @@ function cmpVersions(a, b) {
 
 function getPluginApi(version) {
   version = version.toString();
+
   if (cmpVersions(version, PLUGIN_API_VERSION) <= 0) {
-    if (!_pluginv01) {
-      _pluginv01 = new PluginApi(version, getOwner(this));
+    const owner = getOwner(this);
+    let pluginApi = owner.lookup("plugin-api:main");
+
+    if (!pluginApi) {
+      pluginApi = new PluginApi(version, owner);
+      owner.registry.register("plugin-api:main", pluginApi, {
+        instantiate: false,
+      });
     }
 
     // We are recycling the compatible object, but let's update to the higher version
-    if (_pluginv01.version < version) {
-      _pluginv01.version = version;
+    if (pluginApi.version < version) {
+      pluginApi.version = version;
     }
-    return _pluginv01;
+
+    return pluginApi;
   } else {
     // eslint-disable-next-line no-console
     console.warn(`Plugin API v${version} is not supported`);
@@ -1305,8 +1435,4 @@ function decorate(klass, evt, cb, id) {
     }
   });
   klass.reopen(mixin);
-}
-
-export function resetPluginApi() {
-  _pluginv01 = null;
 }

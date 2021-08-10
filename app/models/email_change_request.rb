@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 class EmailChangeRequest < ActiveRecord::Base
-  belongs_to :old_email_token, class_name: 'EmailToken'
-  belongs_to :new_email_token, class_name: 'EmailToken'
+  belongs_to :old_email_token, class_name: 'EmailToken', dependent: :destroy
+  belongs_to :new_email_token, class_name: 'EmailToken', dependent: :destroy
   belongs_to :user
   belongs_to :requested_by, class_name: "User", foreign_key: :requested_by_user_id
 
@@ -13,7 +13,7 @@ class EmailChangeRequest < ActiveRecord::Base
   end
 
   def requested_by_admin?
-    self.requested_by.admin? && !self.requested_by_self?
+    self.requested_by&.admin? && !self.requested_by_self?
   end
 
   def requested_by_self?

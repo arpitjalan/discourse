@@ -111,8 +111,8 @@ RSpec.describe SecondFactorManager do
 
     describe 'when SSO is enabled' do
       it 'should return false' do
-        SiteSetting.sso_url = 'http://someurl.com'
-        SiteSetting.enable_sso = true
+        SiteSetting.discourse_connect_url = 'http://someurl.com'
+        SiteSetting.enable_discourse_connect = true
 
         expect(user.totp_enabled?).to eq(false)
       end
@@ -129,20 +129,20 @@ RSpec.describe SecondFactorManager do
 
   describe "#has_multiple_second_factor_methods?" do
     context "when security keys and totp are enabled" do
-      it "retrns true" do
+      it "returns true" do
         expect(user.has_multiple_second_factor_methods?).to eq(true)
       end
     end
 
     context "if the totp gets disabled" do
-      it "retrns false" do
+      it "returns false" do
         disable_totp
         expect(user.has_multiple_second_factor_methods?).to eq(false)
       end
     end
 
     context "if the security key gets disabled" do
-      it "retrns false" do
+      it "returns false" do
         disable_security_key
         expect(user.has_multiple_second_factor_methods?).to eq(false)
       end
@@ -437,8 +437,8 @@ RSpec.describe SecondFactorManager do
 
       describe 'when SSO is enabled' do
         it 'should return false' do
-          SiteSetting.sso_url = 'http://someurl.com'
-          SiteSetting.enable_sso = true
+          SiteSetting.discourse_connect_url = 'http://someurl.com'
+          SiteSetting.enable_discourse_connect = true
 
           expect(user_backup.backup_codes_enabled?).to eq(false)
         end

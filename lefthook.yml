@@ -7,7 +7,7 @@ pre-commit:
     prettier:
       glob: "*.{js,es6}"
       include: "app/assets/javascripts|test/javascripts"
-      run: yarn prettier --list-different {staged_files}
+      run: yarn pprettier --list-different {staged_files}
     eslint-es6:
       glob: "*.es6"
       include: "app/assets/javascripts|test/javascripts"
@@ -29,11 +29,11 @@ pre-commit:
 
 commands: &commands
   bundle-install:
-    files: git diff --name-only HEAD master
+    files: git diff --name-only HEAD main
     glob: "{Gemfile,Gemfile.lock,*.gemspec}"
     run: bundle install
   yarn-install:
-    files: git diff --name-only HEAD master
+    files: git diff --name-only HEAD main
     glob: "{package.json,yarn.lock}"
     run: yarn install
 
@@ -54,7 +54,7 @@ lints:
     prettier:
       glob: "*.{js,es6}"
       include: "app/assets/javascripts|test/javascripts"
-      run: yarn prettier --list-different {all_files}
+      run: yarn pprettier --list-different {all_files}
     eslint-assets-es6:
       run: yarn eslint --ext .es6 app/assets/javascripts
     eslint-assets-js:

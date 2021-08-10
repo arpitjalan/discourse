@@ -1,5 +1,4 @@
 import EmberObject, { set } from "@ember/object";
-import Category from "discourse/models/category";
 import { Promise } from "rsvp";
 import RestModel from "discourse/models/rest";
 import ResultSet from "discourse/models/result-set";
@@ -114,9 +113,9 @@ export default EmberObject.extend({
   },
 
   find(type, findArgs, opts) {
-    var adapter = this.adapterFor(type);
+    let adapter = this.adapterFor(type);
     return adapter.find(this, type, findArgs, opts).then((result) => {
-      var hydrated = this._hydrateFindResults(result, type, findArgs, opts);
+      let hydrated = this._hydrateFindResults(result, type, findArgs, opts);
 
       if (result.extras) {
         hydrated.set("extras", result.extras);
@@ -139,7 +138,7 @@ export default EmberObject.extend({
     hydrated.set(
       "content",
       hydrated.get("content").map((item) => {
-        var staleItem = stale.content.findBy(primaryKey, item.get(primaryKey));
+        let staleItem = stale.content.findBy(primaryKey, item.get(primaryKey));
         if (staleItem) {
           staleItem.setProperties(item);
         } else {
@@ -278,14 +277,6 @@ export default EmberObject.extend({
   },
 
   _lookupSubType(subType, type, id, root) {
-    // cheat: we know we already have categories in memory
-    // TODO: topics do their own resolving of `category_id`
-    // to category. That should either respect this or be
-    // removed.
-    if (subType === "category" && type !== "topic") {
-      return Category.findById(id);
-    }
-
     if (root.meta && root.meta.types) {
       subType = root.meta.types[subType] || subType;
     }

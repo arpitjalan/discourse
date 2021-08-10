@@ -35,9 +35,13 @@ export default Component.extend({
   },
 
   removeFromGroup() {
-    this.model
-      .removeMember(this.currentUser)
-      .then(() => this.model.set("is_group_user", false))
+    const model = this.model;
+    model
+      .leave()
+      .then(() => {
+        model.set("is_group_user", false);
+        this.appEvents.trigger("group:leave", model);
+      })
       .catch(popupAjaxError)
       .finally(() => this.set("updatingMembership", false));
   },
@@ -46,12 +50,13 @@ export default Component.extend({
     joinGroup() {
       if (this.currentUser) {
         this.set("updatingMembership", true);
-        const model = this.model;
+        const group = this.model;
 
-        model
-          .addMembers(this.currentUser.get("username"))
+        group
+          .join()
           .then(() => {
-            model.set("is_group_user", true);
+            group.set("is_group_user", true);
+            this.appEvents.trigger("group:join", group);
           })
           .catch(popupAjaxError)
           .finally(() => {

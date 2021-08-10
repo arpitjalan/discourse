@@ -1,79 +1,114 @@
 import Controller, { inject as controller } from "@ember/controller";
+import { action } from "@ember/object";
 import { alias, and, equal } from "@ember/object/computed";
-import I18n from "I18n";
-import Topic from "discourse/models/topic";
-import bootbox from "bootbox";
 import discourseComputed from "discourse-common/utils/decorators";
-import { inject as service } from "@ember/service";
+import { VIEW_NAME_WARNINGS } from "discourse/routes/user-private-messages-warnings";
+import I18n from "I18n";
+
+export const PERSONAL_INBOX = "__personal_inbox__";
+const ALL_INBOX = "__all_inbox__";
 
 export default Controller.extend({
-  userTopicsList: controller("user-topics-list"),
   user: controller(),
-  router: service(),
 
   pmView: false,
   viewingSelf: alias("user.viewingSelf"),
   isGroup: equal("pmView", "groups"),
+  group: null,
+  groupFilter: alias("group.name"),
   currentPath: alias("router._router.currentPath"),
-  selected: alias("userTopicsList.selected"),
-  bulkSelectEnabled: alias("userTopicsList.bulkSelectEnabled"),
-  showToggleBulkSelect: true,
   pmTaggingEnabled: alias("site.can_tag_pms"),
   tagId: null,
 
   showNewPM: and("user.viewingSelf", "currentUser.can_send_private_messages"),
 
-  @discourseComputed("selected.[]", "bulkSelectEnabled")
-  hasSelection(selected, bulkSelectEnabled) {
-    return bulkSelectEnabled && selected && selected.length > 0;
+  @discourseComputed("inboxes", "isAllInbox")
+  displayGlobalFilters(inboxes, isAllInbox) {
+    if (inboxes.length === 0) {
+      return true;
+    }
+    if (inboxes.length && isAllInbox) {
+      return true;
+    }
+    return false;
   },
 
-  @discourseComputed("hasSelection", "pmView", "archive")
-  canMoveToInbox(hasSelection, pmView, archive) {
-    return hasSelection && (pmView === "archive" || archive);
+  @discourseComputed("inboxes")
+  sectionClass(inboxes) {
+    const defaultClass = "user-secondary-navigation user-messages";
+
+    return inboxes.length
+      ? `${defaultClass} user-messages-inboxes`
+      : defaultClass;
   },
 
-  @discourseComputed("hasSelection", "pmView", "archive")
-  canArchive(hasSelection, pmView, archive) {
-    return hasSelection && pmView !== "archive" && !archive;
+  @discourseComputed("pmView")
+  isPersonalInbox(pmView) {
+    return pmView && pmView.startsWith("user");
   },
 
-  bulkOperation(operation) {
-    const selected = this.selected;
-    var params = { type: operation };
-    if (this.isGroup) {
-      params.group = this.groupFilter;
+  @discourseComputed("isPersonalInbox", "group.name")
+  isAllInbox(isPersonalInbox, groupName) {
+    return !this.isPersonalInbox && !groupName;
+  },
+
+  @discourseComputed("isPersonalInbox", "group.name")
+  selectedInbox(isPersonalInbox, groupName) {
+    if (groupName) {
+      return groupName;
     }
 
-    Topic.bulkOperation(selected, params).then(
-      () => {
-        const model = this.get("userTopicsList.model");
-        const topics = model.get("topics");
-        topics.removeObjects(selected);
-        selected.clear();
-        model.loadMore();
-      },
-      () => {
-        bootbox.alert(I18n.t("user.messages.failed_to_move"));
-      }
-    );
+    return isPersonalInbox ? PERSONAL_INBOX : ALL_INBOX;
   },
 
-  actions: {
-    changeGroupNotificationLevel(notificationLevel) {
-      this.group.setNotification(notificationLevel, this.get("user.model.id"));
-    },
-    archive() {
-      this.bulkOperation("archive_messages");
-    },
-    toInbox() {
-      this.bulkOperation("move_messages_to_inbox");
-    },
-    toggleBulkSelect() {
-      this.toggleProperty("bulkSelectEnabled");
-    },
-    selectAll() {
-      $("input.bulk-select:not(checked)").click();
-    },
+  @discourseComputed("viewingSelf", "pmView", "currentUser.admin")
+  showWarningsWarning(viewingSelf, pmView, isAdmin) {
+    return pmView === VIEW_NAME_WARNINGS && !viewingSelf && !isAdmin;
+  },
+
+  @discourseComputed("model.groups")
+  inboxes(groups) {
+    const groupsWithMessages = groups?.filter((group) => {
+      return group.has_messages;
+    });
+
+    if (!groupsWithMessages || groupsWithMessages.length === 0) {
+      return [];
+    }
+
+    const inboxes = [];
+
+    inboxes.push({
+      id: ALL_INBOX,
+      name: I18n.t("user.messages.all"),
+    });
+
+    inboxes.push({
+      id: PERSONAL_INBOX,
+      name: I18n.t("user.messages.personal"),
+      icon: "envelope",
+    });
+
+    groupsWithMessages.forEach((group) => {
+      inboxes.push({ id: group.name, name: group.name, icon: "users" });
+    });
+
+    return inboxes;
+  },
+
+  @action
+  changeGroupNotificationLevel(notificationLevel) {
+    this.group.setNotification(notificationLevel, this.get("user.model.id"));
+  },
+
+  @action
+  updateInbox(inbox) {
+    if (inbox === ALL_INBOX) {
+      this.transitionToRoute("userPrivateMessages.index");
+    } else if (inbox === PERSONAL_INBOX) {
+      this.transitionToRoute("userPrivateMessages.personal");
+    } else {
+      this.transitionToRoute("userPrivateMessages.group", inbox);
+    }
   },
 });

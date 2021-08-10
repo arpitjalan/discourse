@@ -33,11 +33,10 @@ function searchTags(term, categories, limit) {
         function () {
           oldSearch = $.ajax(getURL("/tags/filter/search"), {
             type: "GET",
-            cache: true,
             data: { limit: limit, q },
           });
 
-          var returnVal = CANCELLED_STATUS;
+          let returnVal = CANCELLED_STATUS;
 
           oldSearch
             .then((r) => {
@@ -91,8 +90,8 @@ export function search(term, siteSettings) {
   }
 
   const limit = 5;
-  var categories = Category.search(term, { limit });
-  var numOfCategories = categories.length;
+  let categories = Category.search(term, { limit });
+  let numOfCategories = categories.length;
 
   categories = categories.map((category) => {
     return { model: category, text: Category.slugFor(category, SEPARATOR, 2) };

@@ -163,7 +163,7 @@ describe SiteSetting do
 
     it 'should act as a proxy to the new methods' do
       begin
-        original_settings = SiteSettings::DeprecatedSettings::SETTINGS
+        original_settings = SiteSettings::DeprecatedSettings::SETTINGS.dup
         SiteSettings::DeprecatedSettings::SETTINGS.clear
 
         SiteSettings::DeprecatedSettings::SETTINGS.push([
@@ -196,7 +196,7 @@ describe SiteSetting do
   end
 
   describe 'cached settings' do
-    it 'should recalcualte cached setting when dependent settings are changed' do
+    it 'should recalculate cached setting when dependent settings are changed' do
       SiteSetting.blocked_attachment_filenames = 'foo'
       expect(SiteSetting.blocked_attachment_filenames_regex).to eq(/foo/)
 

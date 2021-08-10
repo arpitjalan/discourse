@@ -11,7 +11,7 @@ const maxMembersToDisplay = 10;
 
 export default Component.extend(CardContentsBase, CleansUp, {
   elementId: "group-card",
-  triggeringLinkClass: "mention-group",
+  mentionSelector: "a.mention-group",
   classNames: ["no-bg", "group-card"],
   classNameBindings: [
     "visible:show",
@@ -51,7 +51,7 @@ export default Component.extend(CardContentsBase, CleansUp, {
         }
         return group.can_see_members &&
           group.members.length < maxMembersToDisplay
-          ? group.findMembers({ limit: maxMembersToDisplay }, true)
+          ? group.reloadMembers({ limit: maxMembersToDisplay }, true)
           : Promise.resolve();
       })
       .catch(() => this._close())
@@ -81,16 +81,14 @@ export default Component.extend(CardContentsBase, CleansUp, {
     },
 
     messageGroup() {
-      this.createNewMessageViaParams(this.get("group.name"));
+      this.createNewMessageViaParams({
+        recipients: this.get("group.name"),
+        hasGroups: true,
+      });
     },
 
     showGroup(group) {
       this.showGroup(group);
-      this._close();
-    },
-
-    showUser(user) {
-      this.showUser(user);
       this._close();
     },
   },

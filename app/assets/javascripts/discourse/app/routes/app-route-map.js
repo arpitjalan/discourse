@@ -27,14 +27,7 @@ export default function () {
   });
 
   this.route("discovery", { path: "/", resetNamespace: true }, function () {
-    // top
-    this.route("top");
-    this.route("topCategoryNone", {
-      path: "/c/*category_slug_path_with_id/none/l/top",
-    });
-    this.route("topCategory", { path: "/c/*category_slug_path_with_id/l/top" });
-
-    // top by periods
+    // top by periods - legacy route
     Site.currentProp("periods").forEach((period) => {
       const top = "top" + period.capitalize();
 
@@ -47,7 +40,7 @@ export default function () {
       });
     });
 
-    // filters (e.g. bookmarks, posted, read, unread, latest)
+    // filters (e.g. bookmarks, posted, read, unread, latest, top)
     Site.currentProp("filters").forEach((filter) => {
       this.route(filter, { path: "/" + filter });
       this.route(filter + "CategoryNone", {
@@ -125,6 +118,7 @@ export default function () {
           });
           this.route("pending");
           this.route("drafts");
+          this.route("read");
         }
       );
 
@@ -146,10 +140,20 @@ export default function () {
         "userPrivateMessages",
         { path: "/messages", resetNamespace: true },
         function () {
-          this.route("sent");
+          this.route("new");
+          this.route("unread");
           this.route("archive");
+          this.route("sent");
+          this.route("personal");
+          this.route("personalSent", { path: "personal/sent" });
+          this.route("personalNew", { path: "personal/new" });
+          this.route("personalUnread", { path: "personal/unread" });
+          this.route("personalArchive", { path: "personal/archive" });
+          this.route("warnings");
           this.route("group", { path: "group/:name" });
           this.route("groupArchive", { path: "group/:name/archive" });
+          this.route("groupNew", { path: "group/:name/new" });
+          this.route("groupUnread", { path: "group/:name/unread" });
           this.route("tags");
           this.route("tagsShow", { path: "tags/:id" });
         }
@@ -157,6 +161,7 @@ export default function () {
 
       this.route("preferences", { resetNamespace: true }, function () {
         this.route("account");
+        this.route("security");
         this.route("profile");
         this.route("emails");
         this.route("notifications");

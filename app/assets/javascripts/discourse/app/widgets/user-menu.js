@@ -1,6 +1,6 @@
+import { later } from "@ember/runloop";
 import { createWidget } from "discourse/widgets/widget";
 import { h } from "virtual-dom";
-import { later } from "@ember/runloop";
 
 const UserMenuAction = {
   QUICK_ACCESS: "quickAccess",
@@ -13,6 +13,13 @@ const QuickAccess = {
   PROFILE: "profile",
 };
 
+const Titles = {
+  bookmarks: "user.bookmarks",
+  messages: "user.private_messages",
+  notifications: "user.notifications",
+  profile: "user.preferences",
+};
+
 let extraGlyphs;
 
 export function addUserMenuGlyph(glyph) {
@@ -23,51 +30,92 @@ export function addUserMenuGlyph(glyph) {
 createWidget("user-menu-links", {
   tagName: "div.menu-links-header",
 
+  _tabAttrs(quickAccessType) {
+    return {
+      "aria-controls": `quick-access-${quickAccessType}`,
+      "aria-selected": "false",
+      tabindex: "-1",
+    };
+  },
+
+  // TODO: Remove when 2.7 gets released.
+  _structureAsTab(extraGlyph) {
+    const glyph = extraGlyph;
+    // Assume glyph is a button if it has a data-url field.
+    if (!glyph.data || !glyph.data.url) {
+      glyph.title = glyph.label;
+      glyph.data = { url: glyph.href };
+
+      glyph.label = null;
+      glyph.href = null;
+    }
+
+    if (glyph.className) {
+      glyph.className += " menu-link";
+    } else {
+      glyph.className = "menu-link";
+    }
+
+    glyph.role = "tab";
+    glyph.tabAttrs = this._tabAttrs(glyph.actionParam);
+
+    return glyph;
+  },
+
   profileGlyph() {
     return {
-      label: "user.preferences",
-      className: "user-preferences-link",
+      title: Titles["profile"],
+      className: "user-preferences-link menu-link",
+      id: QuickAccess.PROFILE,
       icon: "user",
-      href: `${this.attrs.path}/summary`,
       action: UserMenuAction.QUICK_ACCESS,
       actionParam: QuickAccess.PROFILE,
-      "aria-label": "user.preferences",
+      data: { url: `${this.attrs.path}/summary` },
+      role: "tab",
+      tabAttrs: this._tabAttrs(QuickAccess.PROFILE),
     };
   },
 
   notificationsGlyph() {
     return {
-      label: "user.notifications",
-      className: "user-notifications-link",
+      title: Titles["notifications"],
+      className: "user-notifications-link menu-link",
+      id: QuickAccess.NOTIFICATIONS,
       icon: "bell",
-      href: `${this.attrs.path}/notifications`,
       action: UserMenuAction.QUICK_ACCESS,
       actionParam: QuickAccess.NOTIFICATIONS,
-      "aria-label": "user.notifications",
+      data: { url: `${this.attrs.path}/notifications` },
+      role: "tab",
+      tabAttrs: this._tabAttrs(QuickAccess.NOTIFICATIONS),
     };
   },
 
   bookmarksGlyph() {
     return {
+      title: Titles["bookmarks"],
       action: UserMenuAction.QUICK_ACCESS,
       actionParam: QuickAccess.BOOKMARKS,
-      label: "user.bookmarks",
-      className: "user-bookmarks-link",
+      className: "user-bookmarks-link menu-link",
+      id: QuickAccess.BOOKMARKS,
       icon: "bookmark",
-      href: `${this.attrs.path}/activity/bookmarks`,
+      data: { url: `${this.attrs.path}/activity/bookmarks` },
       "aria-label": "user.bookmarks",
+      role: "tab",
+      tabAttrs: this._tabAttrs(QuickAccess.BOOKMARKS),
     };
   },
 
   messagesGlyph() {
     return {
+      title: Titles["messages"],
       action: UserMenuAction.QUICK_ACCESS,
       actionParam: QuickAccess.MESSAGES,
-      label: "user.private_messages",
-      className: "user-pms-link",
+      className: "user-pms-link menu-link",
+      id: QuickAccess.MESSAGES,
       icon: "envelope",
-      href: `${this.attrs.path}/messages`,
-      "aria-label": "user.private_messages",
+      data: { url: `${this.attrs.path}/messages` },
+      role: "tab",
+      tabAttrs: this._tabAttrs(QuickAccess.MESSAGES),
     };
   },
 
@@ -78,15 +126,17 @@ createWidget("user-menu-links", {
     return this.attach("link", link);
   },
 
-  glyphHtml(glyph) {
+  glyphHtml(glyph, idx) {
     if (this.isActive(glyph)) {
       glyph = this.markAsActive(glyph);
     }
-    return this.attach("link", $.extend(glyph, { hideLabel: true }));
+    glyph.data["tab-number"] = `${idx}`;
+
+    return this.attach("flat-button", glyph);
   },
 
   html() {
-    const glyphs = [];
+    const glyphs = [this.notificationsGlyph()];
 
     if (extraGlyphs) {
       extraGlyphs.forEach((g) => {
@@ -94,12 +144,14 @@ createWidget("user-menu-links", {
           g = g(this);
         }
         if (g) {
-          glyphs.push(g);
+          const structuredGlyph = this._structureAsTab(g);
+          Titles[structuredGlyph.actionParam] =
+            structuredGlyph.title || structuredGlyph.label;
+          glyphs.push(structuredGlyph);
         }
       });
     }
 
-    glyphs.push(this.notificationsGlyph());
     glyphs.push(this.bookmarksGlyph());
 
     if (this.siteSettings.enable_personal_messages || this.currentUser.staff) {
@@ -108,10 +160,11 @@ createWidget("user-menu-links", {
 
     glyphs.push(this.profileGlyph());
 
-    return h("ul.menu-links-row", [
+    return h("div.menu-links-row", [
       h(
-        "li.glyphs",
-        glyphs.map((l) => this.glyphHtml(l))
+        "div.glyphs",
+        { attributes: { "aria-label": "Menu links", role: "tablist" } },
+        glyphs.map((l, index) => this.glyphHtml(l, index))
       ),
     ]);
   },
@@ -121,12 +174,16 @@ createWidget("user-menu-links", {
     // the full page.
     definition.action = null;
     definition.actionParam = null;
+    definition.url = definition.data.url;
 
     if (definition.className) {
       definition.className += " active";
     } else {
       definition.className = "active";
     }
+
+    definition.tabAttrs["tabindex"] = "0";
+    definition.tabAttrs["aria-selected"] = "true";
 
     return definition;
   },
@@ -148,9 +205,29 @@ export default createWidget("user-menu", {
     showLogoutButton: true,
   },
 
+  userMenuNavigation(nav) {
+    const maxTabNumber = document.querySelectorAll(".glyphs button").length - 1;
+    const isLeft = nav.key === "ArrowLeft";
+
+    let nextTab = isLeft ? nav.tabNumber - 1 : nav.tabNumber + 1;
+
+    if (isLeft && nextTab < 0) {
+      nextTab = maxTabNumber;
+    }
+
+    if (!isLeft && nextTab > maxTabNumber) {
+      nextTab = 0;
+    }
+
+    document
+      .querySelector(`.menu-link[role='tab'][data-tab-number='${nextTab}']`)
+      .focus();
+  },
+
   defaultState() {
     return {
       currentQuickAccess: QuickAccess.NOTIFICATIONS,
+      titleKey: Titles["notifications"],
       hasUnread: false,
       markUnread: null,
     };
@@ -158,14 +235,14 @@ export default createWidget("user-menu", {
 
   panelContents() {
     const path = this.currentUser.get("path");
-    const { currentQuickAccess } = this.state;
+    const { currentQuickAccess, titleKey } = this.state;
 
     const result = [
       this.attach("user-menu-links", {
         path,
         currentQuickAccess,
       }),
-      this.quickAccessPanel(path),
+      this.quickAccessPanel(path, titleKey, currentQuickAccess),
     ];
 
     return result;
@@ -188,21 +265,24 @@ export default createWidget("user-menu", {
   },
 
   clickOutsideMobile(e) {
-    const $centeredElement = $(document.elementFromPoint(e.clientX, e.clientY));
-    if (
-      $centeredElement.parents(".panel").length &&
-      !$centeredElement.hasClass("header-cloak")
-    ) {
+    const centeredElement = document.elementFromPoint(e.clientX, e.clientY);
+    const parents = document
+      .elementsFromPoint(e.clientX, e.clientY)
+      .some((ele) => ele.classList.contains("panel"));
+    if (!centeredElement.classList.contains("header-cloak") && parents) {
       this.sendWidgetAction("toggleUserMenu");
     } else {
-      const $window = $(window);
-      const windowWidth = $window.width();
-      const $panel = $(".menu-panel");
-      $panel.addClass("animate");
-      $panel.css("right", -windowWidth);
-      const $headerCloak = $(".header-cloak");
-      $headerCloak.addClass("animate");
-      $headerCloak.css("opacity", 0);
+      const windowWidth = document.body.offsetWidth;
+      const panel = document.querySelector(".menu-panel");
+      panel.classList.add("animate");
+      let offsetDirection =
+        document.querySelector("html").classList["direction"] === "rtl"
+          ? -1
+          : 1;
+      panel.style.setProperty("--offset", `${offsetDirection * windowWidth}px`);
+      const headerCloak = document.querySelector(".header-cloak");
+      headerCloak.classList.add("animate");
+      headerCloak.style.setProperty("--opacity", 0);
       later(() => this.sendWidgetAction("toggleUserMenu"), 200);
     }
   },
@@ -218,15 +298,18 @@ export default createWidget("user-menu", {
   quickAccess(type) {
     if (this.state.currentQuickAccess !== type) {
       this.state.currentQuickAccess = type;
+      this.state.titleKey = Titles[type];
     }
   },
 
-  quickAccessPanel(path) {
+  quickAccessPanel(path, titleKey, currentQuickAccess) {
     const { showLogoutButton } = this.settings;
     // This deliberately does NOT fallback to a default quick access panel.
     return this.attach(`quick-access-${this.state.currentQuickAccess}`, {
       path,
       showLogoutButton,
+      titleKey,
+      currentQuickAccess,
     });
   },
 });

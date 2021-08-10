@@ -67,19 +67,34 @@ class PostRevisor
     end
   end
 
-  # Fields we want to record revisions for by default
-  %i{title archetype}.each do |field|
-    track_topic_field(field) do |tc, attribute|
-      tc.record_change(field, tc.topic.public_send(field), attribute)
-      tc.topic.public_send("#{field}=", attribute)
-    end
+  def self.track_and_revise(topic_changes, field, attribute)
+    topic_changes.record_change(
+      field,
+      topic_changes.topic.public_send(field),
+      attribute
+    )
+    topic_changes.topic.public_send("#{field}=", attribute)
   end
 
-  track_topic_field(:category_id) do |tc, category_id|
+  track_topic_field(:title) do |topic_changes, attribute|
+    track_and_revise topic_changes, :title, attribute
+  end
+
+  track_topic_field(:archetype) do |topic_changes, attribute|
+    track_and_revise topic_changes, :archetype, attribute
+  end
+
+  track_topic_field(:category_id) do |tc, category_id, fields|
     if category_id == 0 && tc.topic.private_message?
       tc.record_change('category_id', tc.topic.category_id, nil)
       tc.topic.category_id = nil
     elsif category_id == 0 || tc.guardian.can_move_topic_to_category?(category_id)
+      tags = fields[:tags] || tc.topic.tags.map(&:name)
+      if category_id != 0 && !DiscourseTagging.validate_min_required_tags_for_category(tc.guardian, tc.topic, Category.find(category_id), tags)
+        tc.check_result(false)
+        next
+      end
+
       tc.record_change('category_id', tc.topic.category_id, category_id)
       tc.check_result(tc.topic.change_category_to_id(category_id))
     end
@@ -98,16 +113,17 @@ class PostRevisor
         DB.after_commit do
           post = tc.topic.ordered_posts.first
           notified_user_ids = [post.user_id, post.last_editor_id].uniq
-          Jobs.enqueue(:notify_tag_change, post_id: post.id, notified_user_ids: notified_user_ids)
+          Jobs.enqueue(:notify_tag_change, post_id: post.id, notified_user_ids: notified_user_ids, diff_tags: ((tags - prev_tags) | (prev_tags - tags)))
         end
       end
     end
   end
 
   track_topic_field(:featured_link) do |topic_changes, featured_link|
-    if SiteSetting.topic_featured_link_enabled &&
-       topic_changes.guardian.can_edit_featured_link?(topic_changes.topic.category_id)
-
+    if !SiteSetting.topic_featured_link_enabled ||
+      !topic_changes.guardian.can_edit_featured_link?(topic_changes.topic.category_id)
+      topic_changes.check_result(false)
+    else
       topic_changes.record_change('featured_link', topic_changes.topic.featured_link, featured_link)
       topic_changes.topic.featured_link = featured_link
     end
@@ -115,7 +131,7 @@ class PostRevisor
 
   # AVAILABLE OPTIONS:
   # - revised_at: changes the date of the revision
-  # - force_new_version: bypass ninja-edit window
+  # - force_new_version: bypass grace period edit window
   # - bypass_rate_limiter:
   # - bypass_bump: do not bump the topic, even if last post
   # - skip_validations: ask ActiveRecord to skip validations
@@ -137,6 +153,12 @@ class PostRevisor
     # previous reasons are lost
     @fields.delete(:edit_reason) if @fields[:edit_reason].blank?
 
+    Post.plugin_permitted_update_params.each do |field, val|
+      if @fields.key?(field) && val[:plugin].enabled?
+        val[:handler].call(@post, @fields[field])
+      end
+    end
+
     return false unless should_revise?
 
     @post.acting_user = @editor
@@ -144,7 +166,7 @@ class PostRevisor
     @revised_at = @opts[:revised_at] || Time.now
     @last_version_at = @post.last_version_at || Time.now
 
-    if guardian.affected_by_slow_mode?(@topic) && !ninja_edit?
+    if guardian.affected_by_slow_mode?(@topic) && !grace_period_edit? && SiteSetting.slow_mode_prevents_editing
       @post.errors.add(:base, I18n.t("cannot_edit_on_slow_mode"))
       return false
     end
@@ -158,7 +180,7 @@ class PostRevisor
 
     @validate_topic = true
     @validate_topic = @opts[:validate_topic] if @opts.has_key?(:validate_topic)
-    @validate_topic = !@opts[:validate_topic] if @opts.has_key?(:skip_validations)
+    @validate_topic = !@opts[:skip_validations] if @opts.has_key?(:skip_validations)
 
     @skip_revision = false
     @skip_revision = @opts[:skip_revision] if @opts.has_key?(:skip_revision)
@@ -214,6 +236,11 @@ class PostRevisor
     # it can fire events in sidekiq before the post is done saving
     # leading to corrupt state
     QuotedPost.extract_from(@post)
+
+    # This must be done before post_process_post, because that uses
+    # post upload security status to cook URLs.
+    @post.update_uploads_secure_status(source: "post revisor")
+
     post_process_post
 
     update_topic_word_counts
@@ -222,6 +249,10 @@ class PostRevisor
     grant_badge
 
     TopicLink.extract_from(@post)
+
+    if should_create_new_version?
+      ReviewablePost.queue_for_review_if_possible(@post, @editor)
+    end
 
     successfully_saved_post_and_topic
   end
@@ -262,7 +293,7 @@ class PostRevisor
 
   def should_create_new_version?
     return false if @skip_revision
-    edited_by_another_user? || !ninja_edit? || owner_changed? || force_new_version? || edit_reason_specified?
+    edited_by_another_user? || !grace_period_edit? || owner_changed? || force_new_version? || edit_reason_specified?
   end
 
   def edit_reason_specified?
@@ -311,7 +342,7 @@ class PostRevisor
     end
   end
 
-  def ninja_edit?
+  def grace_period_edit?
     return false if (@revised_at - @last_version_at) > SiteSetting.editing_grace_period.to_i
     return false if @post.reviewable_flag.present?
 
@@ -394,6 +425,8 @@ class PostRevisor
     @post.link_post_uploads
     @post.save_reply_relationships
 
+    @editor.increment_post_edits_count if @post_successfully_saved
+
     # post owner changed
     if prev_owner && new_owner && prev_owner != new_owner
       likes = UserAction.where(target_post_id: @post.id)
@@ -454,7 +487,7 @@ class PostRevisor
     Topic.transaction do
       PostRevisor.tracked_topic_fields.each do |f, cb|
         if !@topic_changes.errored? && @fields.has_key?(f)
-          cb.call(@topic_changes, @fields[f])
+          cb.call(@topic_changes, @fields[f], @fields)
         end
       end
 
@@ -522,6 +555,10 @@ class PostRevisor
 
   def post_changes
     @post.previous_changes.slice(*POST_TRACKED_FIELDS)
+  end
+
+  def topic_diff
+    @topic_changes.diff
   end
 
   def perform_edit

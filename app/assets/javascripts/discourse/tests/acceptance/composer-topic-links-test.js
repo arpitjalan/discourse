@@ -52,6 +52,17 @@ acceptance("Composer topic featured links", function (needs) {
     );
   });
 
+  test("YouTube onebox with title", async function (assert) {
+    await visit("/");
+    await click("#create-topic");
+    await fillIn("#reply-title", "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    assert.equal(
+      queryAll(".title-input input").val(),
+      "Rick Astley - Never Gonna Give You Up (Video)",
+      "title is from the oneboxed article"
+    );
+  });
+
   test("no onebox result", async function (assert) {
     await visit("/");
     await click("#create-topic");
@@ -135,6 +146,24 @@ acceptance("Composer topic featured links", function (needs) {
       "title is unchanged"
     );
   });
+
+  test("blank title for Twitter link", async function (assert) {
+    await visit("/");
+    await click("#create-topic");
+    await fillIn(
+      "#reply-title",
+      "https://twitter.com/discourse/status/1357664660724482048"
+    );
+    assert.ok(
+      queryAll(".d-editor-preview").html().trim().indexOf("onebox") > 0,
+      "it pastes the link into the body and previews it"
+    );
+    assert.ok(
+      exists(".d-editor-textarea-wrapper .popup-tip.good"),
+      "the body is now good"
+    );
+    assert.blank(queryAll(".title-input input").val(), "title is blank");
+  });
 });
 
 acceptance(
@@ -152,7 +181,7 @@ acceptance(
       await visit("/");
       await click("#create-topic");
       assert.ok(
-        queryAll(".d-editor-textarea-wrapper.disabled").length,
+        exists(".d-editor-textarea-wrapper.disabled"),
         "textarea is disabled"
       );
       await fillIn("#reply-title", "http://www.example.com/has-title.html");
@@ -170,7 +199,7 @@ acceptance(
         "title is from the oneboxed article"
       );
       assert.ok(
-        queryAll(".d-editor-textarea-wrapper.disabled").length === 0,
+        !exists(".d-editor-textarea-wrapper.disabled"),
         "textarea is enabled"
       );
     });

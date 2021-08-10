@@ -2,17 +2,19 @@ import componentTest, {
   setupRenderingTest,
 } from "discourse/tests/helpers/component-test";
 import {
+  count,
   discourseModule,
-  queryAll,
+  query,
 } from "discourse/tests/helpers/qunit-helpers";
 import { click } from "@ember/test-helpers";
+import hbs from "htmlbars-inline-precompile";
 import selectKit from "discourse/tests/helpers/select-kit-helper";
 
 discourseModule("Integration | Component | value-list", function (hooks) {
   setupRenderingTest(hooks);
 
   componentTest("adding a value", {
-    template: "{{value-list values=values}}",
+    template: hbs`{{value-list values=values}}`,
 
     skip: true,
 
@@ -23,10 +25,11 @@ discourseModule("Integration | Component | value-list", function (hooks) {
     async test(assert) {
       await selectKit().expand();
       await selectKit().fillInFilter("eviltrout");
-      await selectKit().keyboard("enter");
+      await selectKit().keyboard("Enter");
 
-      assert.ok(
-        queryAll(".values .value").length === 3,
+      assert.equal(
+        count(".values .value"),
+        3,
         "it adds the value to the list of values"
       );
 
@@ -39,7 +42,7 @@ discourseModule("Integration | Component | value-list", function (hooks) {
   });
 
   componentTest("removing a value", {
-    template: "{{value-list values=values}}",
+    template: hbs`{{value-list values=values}}`,
 
     beforeEach() {
       this.set("values", "vinkas\nosama");
@@ -48,8 +51,9 @@ discourseModule("Integration | Component | value-list", function (hooks) {
     async test(assert) {
       await click(".values .value[data-index='0'] .remove-value-btn");
 
-      assert.ok(
-        queryAll(".values .value").length === 1,
+      assert.equal(
+        count(".values .value"),
+        1,
         "it removes the value from the list of values"
       );
 
@@ -58,7 +62,7 @@ discourseModule("Integration | Component | value-list", function (hooks) {
       await selectKit().expand();
 
       assert.ok(
-        queryAll(".select-kit-collection li.select-kit-row span.name")[0]
+        query(".select-kit-collection li.select-kit-row span.name")
           .innerText === "vinkas",
         "it adds the removed value to choices"
       );
@@ -66,7 +70,7 @@ discourseModule("Integration | Component | value-list", function (hooks) {
   });
 
   componentTest("selecting a value", {
-    template: "{{value-list values=values choices=choices}}",
+    template: hbs`{{value-list values=values choices=choices}}`,
 
     beforeEach() {
       this.setProperties({
@@ -79,8 +83,9 @@ discourseModule("Integration | Component | value-list", function (hooks) {
       await selectKit().expand();
       await selectKit().selectRowByValue("maja");
 
-      assert.ok(
-        queryAll(".values .value").length === 3,
+      assert.equal(
+        count(".values .value"),
+        3,
         "it adds the value to the list of values"
       );
 
@@ -93,7 +98,7 @@ discourseModule("Integration | Component | value-list", function (hooks) {
   });
 
   componentTest("array support", {
-    template: "{{value-list values=values inputType='array'}}",
+    template: hbs`{{value-list values=values inputType='array'}}`,
 
     beforeEach() {
       this.set("values", ["vinkas", "osama"]);
@@ -104,10 +109,11 @@ discourseModule("Integration | Component | value-list", function (hooks) {
 
       await selectKit().expand();
       await selectKit().fillInFilter("eviltrout");
-      await selectKit().keyboard("enter");
+      await selectKit().keyboard("Enter");
 
-      assert.ok(
-        queryAll(".values .value").length === 3,
+      assert.equal(
+        count(".values .value"),
+        3,
         "it adds the value to the list of values"
       );
 
@@ -120,7 +126,7 @@ discourseModule("Integration | Component | value-list", function (hooks) {
   });
 
   componentTest("delimiter support", {
-    template: "{{value-list values=values inputDelimiter='|'}}",
+    template: hbs`{{value-list values=values inputDelimiter='|'}}`,
 
     beforeEach() {
       this.set("values", "vinkas|osama");
@@ -131,10 +137,11 @@ discourseModule("Integration | Component | value-list", function (hooks) {
     async test(assert) {
       await selectKit().expand();
       await selectKit().fillInFilter("eviltrout");
-      await selectKit().keyboard("enter");
+      await selectKit().keyboard("Enter");
 
-      assert.ok(
-        queryAll(".values .value").length === 3,
+      assert.equal(
+        count(".values .value"),
+        3,
         "it adds the value to the list of values"
       );
 

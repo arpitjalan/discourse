@@ -71,7 +71,6 @@ function loadNext(ajax) {
       category_id: categoryId,
       topic_id: topicId,
     },
-    cache: true,
   })
     .then(
       (html) => {
@@ -103,11 +102,12 @@ function loadNext(ajax) {
 // It will insert a loading indicator and remove it when the loading is complete or fails.
 export function load({
   elem,
-  refresh = true,
   ajax,
-  synchronous = false,
-  categoryId,
   topicId,
+  categoryId,
+  refresh = true,
+  offline = false,
+  synchronous = false,
 }) {
   const $elem = $(elem);
 
@@ -132,6 +132,10 @@ export function load({
     // If the request failed, don't do anything
     const failed = failedCache[normalize(url)];
     if (failed) {
+      return;
+    }
+
+    if (offline) {
       return;
     }
   }

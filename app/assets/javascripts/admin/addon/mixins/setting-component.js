@@ -27,6 +27,7 @@ const CUSTOM_TYPES = [
   "tag_list",
   "color",
   "simple_list",
+  "emoji_list",
 ];
 
 const AUTO_REFRESH_ON_SAVE = ["logo", "logo_small", "large_icon"];
@@ -137,7 +138,7 @@ export default Mixin.create({
       "keydown.setting-enter",
       ".input-setting-string",
       (e) => {
-        if (e.keyCode === 13) {
+        if (e.key === "Enter") {
           // enter key
           this.send("save");
         }

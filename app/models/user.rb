@@ -23,7 +23,7 @@ class User < ActiveRecord::Base
   has_many :email_tokens, dependent: :destroy
   has_many :topic_links, dependent: :destroy
   has_many :user_uploads, dependent: :destroy
-  has_many :user_emails, dependent: :destroy
+  has_many :user_emails, dependent: :destroy, autosave: true
   has_many :user_associated_accounts, dependent: :destroy
   has_many :oauth2_user_infos, dependent: :destroy
   has_many :user_second_factors, dependent: :destroy
@@ -37,10 +37,11 @@ class User < ActiveRecord::Base
   has_many :targeted_group_histories, dependent: :destroy, foreign_key: :target_user_id, class_name: 'GroupHistory'
   has_many :reviewable_scores, dependent: :destroy
   has_many :invites, foreign_key: :invited_by_id, dependent: :destroy
+  has_many :user_custom_fields, dependent: :destroy
 
   has_one :user_option, dependent: :destroy
   has_one :user_avatar, dependent: :destroy
-  has_one :primary_email, -> { where(primary: true)  }, class_name: 'UserEmail', dependent: :destroy
+  has_one :primary_email, -> { where(primary: true)  }, class_name: 'UserEmail', dependent: :destroy, autosave: true, validate: false
   has_one :user_stat, dependent: :destroy
   has_one :user_profile, dependent: :destroy, inverse_of: :user
   has_one :single_sign_on_record, dependent: :destroy
@@ -53,7 +54,6 @@ class User < ActiveRecord::Base
   has_many :bookmarks, dependent: :delete_all
   has_many :notifications, dependent: :delete_all
   has_many :topic_users, dependent: :delete_all
-  has_many :email_logs, dependent: :delete_all
   has_many :incoming_emails, dependent: :delete_all
   has_many :user_visits, dependent: :delete_all
   has_many :user_auth_token_logs, dependent: :delete_all
@@ -67,14 +67,17 @@ class User < ActiveRecord::Base
   has_many :post_actions
   has_many :post_timings
   has_many :directory_items
+  has_many :email_logs
   has_many :security_keys, -> {
     where(enabled: true)
   }, class_name: "UserSecurityKey"
 
   has_many :badges, through: :user_badges
-  has_many :default_featured_user_badges,
-            -> { for_enabled_badges.grouped_with_count.where("featured_rank <= ?", DEFAULT_FEATURED_BADGE_COUNT) },
-            class_name: "UserBadge"
+  has_many :default_featured_user_badges, -> {
+    max_featured_rank = SiteSetting.max_favorite_badges > 0 ? SiteSetting.max_favorite_badges + 1
+                                                            : DEFAULT_FEATURED_BADGE_COUNT
+    for_enabled_badges.grouped_with_count.where("featured_rank <= ?", max_featured_rank)
+  }, class_name: "UserBadge"
 
   has_many :topics_allowed, through: :topic_allowed_users, source: :topic
   has_many :groups, through: :group_users
@@ -92,6 +95,7 @@ class User < ActiveRecord::Base
   has_one :card_background_upload, through: :user_profile
   belongs_to :approved_by, class_name: 'User'
   belongs_to :primary_group, class_name: 'Group'
+  belongs_to :flair_group, class_name: 'Group'
 
   has_many :muted_users, through: :muted_user_records
   has_many :ignored_users, through: :ignored_user_records
@@ -130,7 +134,7 @@ class User < ActiveRecord::Base
 
   before_save :update_usernames
   before_save :ensure_password_is_hashed
-  before_save :match_title_to_primary_group_changes
+  before_save :match_primary_group_changes
   before_save :check_if_title_is_badged_granted
 
   after_save :expire_tokens_if_password_changed
@@ -183,8 +187,15 @@ class User < ActiveRecord::Base
   # set to true to optimize creation and save for imports
   attr_accessor :import_mode
 
+  # Cache for user custom fields. Currently it is used to display quick search results
+  attr_accessor :custom_data
+
   scope :with_email, ->(email) do
     joins(:user_emails).where("lower(user_emails.email) IN (?)", email)
+  end
+
+  scope :with_primary_email, ->(email) do
+    joins(:user_emails).where("lower(user_emails.email) IN (?) AND user_emails.primary", email)
   end
 
   scope :human_users, -> { where('users.id > 0') }
@@ -287,21 +298,6 @@ class User < ActiveRecord::Base
     fields.uniq
   end
 
-  def self.register_plugin_editable_user_custom_field(custom_field_name, plugin, staff_only: false)
-    Discourse.deprecate("Editable user custom fields should be registered using the plugin API", since: "v2.4.0.beta4", drop_from: "v2.5.0")
-    DiscoursePluginRegistry.register_editable_user_custom_field(custom_field_name, plugin, staff_only: staff_only)
-  end
-
-  def self.register_plugin_staff_custom_field(custom_field_name, plugin)
-    Discourse.deprecate("Staff user custom fields should be registered using the plugin API",  since: "v2.4.0.beta4", drop_from: "v2.5.0")
-    DiscoursePluginRegistry.register_staff_user_custom_field(custom_field_name, plugin)
-  end
-
-  def self.register_plugin_public_custom_field(custom_field_name, plugin)
-    Discourse.deprecate("Public user custom fields should be registered using the plugin API", since: "v2.4.0.beta4", drop_from: "v2.5.0")
-    DiscoursePluginRegistry.register_public_user_custom_field(custom_field_name, plugin)
-  end
-
   def self.allowed_user_custom_fields(guardian)
     fields = []
 
@@ -380,8 +376,12 @@ class User < ActiveRecord::Base
     end
   end
 
-  def self.find_by_email(email)
-    self.with_email(Email.downcase(email)).first
+  def self.find_by_email(email, primary: false)
+    if primary
+      self.with_primary_email(Email.downcase(email)).first
+    else
+      self.with_email(Email.downcase(email)).first
+    end
   end
 
   def self.find_by_username(username)
@@ -433,7 +433,6 @@ class User < ActiveRecord::Base
   end
 
   def created_topic_count
-    stat = user_stat || create_user_stat
     stat.topic_count
   end
 
@@ -446,7 +445,7 @@ class User < ActiveRecord::Base
   end
 
   def invited_by
-    used_invite = Invite.joins(:invited_users).where("invited_users.user_id = ?", self.id).first
+    used_invite = Invite.with_deleted.joins(:invited_users).where("invited_users.user_id = ?", self.id).first
     used_invite.try(:invited_by)
   end
 
@@ -868,12 +867,16 @@ class User < ActiveRecord::Base
     Digest::MD5.hexdigest(username)[0...15].to_i(16) % length
   end
 
+  def is_system_user?
+    id == Discourse::SYSTEM_USER_ID
+  end
+
   def avatar_template
-    use_small_logo = id == Discourse::SYSTEM_USER_ID &&
+    use_small_logo = is_system_user? &&
       SiteSetting.logo_small && SiteSetting.use_site_small_logo_as_system_avatar
 
     if use_small_logo
-      UrlHelper.absolute(SiteSetting.logo_small.url)
+      Discourse.store.cdn_url(SiteSetting.logo_small.url)
     else
       self.class.avatar_template(username, uploaded_avatar_id)
     end
@@ -890,8 +893,15 @@ class User < ActiveRecord::Base
   end
 
   def post_count
-    stat = user_stat || create_user_stat
     stat.post_count
+  end
+
+  def post_edits_count
+    stat.post_edits_count
+  end
+
+  def increment_post_edits_count
+    stat.increment!(:post_edits_count)
   end
 
   def flags_given_count
@@ -954,6 +964,10 @@ class User < ActiveRecord::Base
     silenced_record.try(:created_at) if silenced?
   end
 
+  def silenced_forever?
+    silenced_till > 100.years.from_now
+  end
+
   def suspend_record
     UserHistory.for(self, :suspend_user).order('id DESC').first
   end
@@ -968,6 +982,27 @@ class User < ActiveRecord::Base
     end
 
     nil
+  end
+
+  def suspended_message
+    return nil unless suspended?
+
+    message = "login.suspended"
+    if suspend_reason
+      if suspended_forever?
+        message = "login.suspended_with_reason_forever"
+      else
+        message = "login.suspended_with_reason"
+      end
+    end
+
+    I18n.t(message,
+           date: I18n.l(suspended_till, format: :date_only),
+           reason: Rack::Utils.escape_html(suspend_reason))
+  end
+
+  def suspended_forever?
+    suspended_till > 100.years.from_now
   end
 
   # Use this helper to determine if the user has a particular trust level.
@@ -1011,7 +1046,7 @@ class User < ActiveRecord::Base
     self.update!(active: false)
 
     if reviewable = ReviewableUser.pending.find_by(target: self)
-      reviewable.perform(performed_by, :reject_user_delete)
+      reviewable.perform(performed_by, :delete_user)
     end
   end
 
@@ -1027,8 +1062,8 @@ class User < ActiveRecord::Base
     user_stat&.distinct_badge_count
   end
 
-  def featured_user_badges(limit = DEFAULT_FEATURED_BADGE_COUNT)
-    if limit == DEFAULT_FEATURED_BADGE_COUNT
+  def featured_user_badges(limit = nil)
+    if limit.nil?
       default_featured_user_badges
     else
       user_badges.grouped_with_count.where("featured_rank <= ?", limit)
@@ -1173,6 +1208,10 @@ class User < ActiveRecord::Base
     end
   end
 
+  def set_user_field(field_id, value)
+    custom_fields["#{USER_FIELD_PREFIX}#{field_id}"] = value
+  end
+
   def number_of_deleted_posts
     Post.with_deleted
       .where(user_id: self.id)
@@ -1263,12 +1302,21 @@ class User < ActiveRecord::Base
     primary_email&.email
   end
 
+  # Shortcut to set the primary email of the user.
+  # Automatically removes any identical secondary emails.
   def email=(new_email)
     if primary_email
-      new_record? ? primary_email.email = new_email : primary_email.update(email: new_email)
+      primary_email.email = new_email
     else
-      self.primary_email = UserEmail.new(email: new_email, user: self, primary: true, skip_validate_email: !should_validate_email_address?)
+      build_primary_email email: new_email, skip_validate_email: !should_validate_email_address?
     end
+
+    if secondary_match = user_emails.detect { |ue| !ue.primary && Email.downcase(ue.email) == Email.downcase(new_email) }
+      secondary_match.mark_for_destruction
+      primary_email.skip_validate_unique_email = true
+    end
+
+    new_email
   end
 
   def emails
@@ -1391,6 +1439,10 @@ class User < ActiveRecord::Base
     active_do_not_disturb_timings.maximum(:ends_at)
   end
 
+  def shelved_notifications
+    ShelvedNotification.joins(:notification).where("notifications.user_id = ?", self.id)
+  end
+
   protected
 
   def badge_grant
@@ -1404,7 +1456,8 @@ class User < ActiveRecord::Base
   end
 
   def index_search
-    SearchIndexer.index(self)
+    # force is needed as user custom fields are updated using SQL and after_save callback is not triggered
+    SearchIndexer.index(self, force: true)
   end
 
   def clear_global_notice_if_needed
@@ -1421,9 +1474,7 @@ class User < ActiveRecord::Base
   end
 
   def create_user_stat
-    stat = UserStat.new(new_since: Time.now)
-    stat.user_id = id
-    stat.save!
+    UserStat.create!(new_since: Time.zone.now, user_id: id)
   end
 
   def create_user_option
@@ -1520,17 +1571,27 @@ class User < ActiveRecord::Base
 
     values = []
 
-    %w{watching watching_first_post tracking regular muted}.each do |s|
-      category_ids = SiteSetting.get("default_categories_#{s}").split("|").map(&:to_i)
+    # The following site settings are used to pre-populate default category
+    # tracking settings for a user:
+    #
+    # * default_categories_watching
+    # * default_categories_tracking
+    # * default_categories_watching_first_post
+    # * default_categories_regular
+    # * default_categories_muted
+    %w{watching watching_first_post tracking regular muted}.each do |setting|
+      category_ids = SiteSetting.get("default_categories_#{setting}").split("|").map(&:to_i)
       category_ids.each do |category_id|
         next if category_id == 0
-        values << "(#{self.id}, #{category_id}, #{CategoryUser.notification_levels[s.to_sym]})"
+        values << {
+          user_id: self.id,
+          category_id: category_id,
+          notification_level: CategoryUser.notification_levels[setting.to_sym]
+        }
       end
     end
 
-    if values.present?
-      DB.exec("INSERT INTO category_users (user_id, category_id, notification_level) VALUES #{values.join(",")}")
-    end
+    CategoryUser.insert_all!(values) if values.present?
   end
 
   def set_default_tags_preferences
@@ -1538,12 +1599,25 @@ class User < ActiveRecord::Base
 
     values = []
 
-    %w{watching watching_first_post tracking muted}.each do |s|
-      tag_names = SiteSetting.get("default_tags_#{s}").split("|")
+    # The following site settings are used to pre-populate default tag
+    # tracking settings for a user:
+    #
+    # * default_tags_watching
+    # * default_tags_tracking
+    # * default_tags_watching_first_post
+    # * default_tags_muted
+    %w{watching watching_first_post tracking muted}.each do |setting|
+      tag_names = SiteSetting.get("default_tags_#{setting}").split("|")
       now = Time.zone.now
 
       Tag.where(name: tag_names).pluck(:id).each do |tag_id|
-        values << { user_id: self.id, tag_id: tag_id, notification_level: TagUser.notification_levels[s.to_sym], created_at: now, updated_at: now }
+        values << {
+          user_id: self.id,
+          tag_id: tag_id,
+          notification_level: TagUser.notification_levels[setting.to_sym],
+          created_at: now,
+          updated_at: now
+        }
       end
     end
 
@@ -1562,25 +1636,36 @@ class User < ActiveRecord::Base
       .where("NOT EXISTS
               (SELECT 1 FROM topic_allowed_users tu JOIN topics t ON t.id = tu.topic_id AND t.user_id > 0 WHERE tu.user_id = users.id LIMIT 1)
             ")
+      .where("NOT EXISTS
+              (SELECT 1 FROM posts p WHERE p.user_id = users.id LIMIT 1)
+            ")
       .limit(200)
       .find_each do |user|
       begin
         destroyer.destroy(user, context: I18n.t(:purge_reason))
-      rescue Discourse::InvalidAccess, UserDestroyer::PostsExistError
+      rescue Discourse::InvalidAccess
         # keep going
       end
     end
   end
 
-  def match_title_to_primary_group_changes
+  def match_primary_group_changes
     return unless primary_group_id_changed?
 
     if title == Group.where(id: primary_group_id_was).pluck_first(:title)
       self.title = primary_group&.title
     end
+
+    if flair_group_id == primary_group_id_was
+      self.flair_group_id = primary_group&.id
+    end
   end
 
   private
+
+  def stat
+    user_stat || create_user_stat
+  end
 
   def trigger_user_automatic_group_refresh
     if !staged
@@ -1655,7 +1740,6 @@ class User < ActiveRecord::Base
       )
     SQL
   end
-
 end
 
 # == Schema Information
@@ -1699,6 +1783,7 @@ end
 #  group_locked_trust_level  :integer
 #  manual_locked_trust_level :integer
 #  secure_identifier         :string
+#  flair_group_id            :integer
 #
 # Indexes
 #

@@ -2,32 +2,35 @@ import componentTest, {
   setupRenderingTest,
 } from "discourse/tests/helpers/component-test";
 import {
+  count,
   discourseModule,
+  exists,
   queryAll,
 } from "discourse/tests/helpers/qunit-helpers";
 import EmberObject from "@ember/object";
 import I18n from "I18n";
 import { click } from "@ember/test-helpers";
+import hbs from "htmlbars-inline-precompile";
 
 discourseModule("Integration | Component | Widget | post", function (hooks) {
   setupRenderingTest(hooks);
 
   componentTest("basic elements", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", { shareUrl: "/example", post_number: 1 });
     },
     test(assert) {
-      assert.ok(queryAll(".names").length, "includes poster name");
+      assert.ok(exists(".names"), "includes poster name");
 
-      assert.ok(queryAll("a.post-date").length, "includes post date");
-      assert.ok(queryAll("a.post-date[data-share-url]").length);
-      assert.ok(queryAll("a.post-date[data-post-number]").length);
+      assert.ok(exists("a.post-date"), "includes post date");
+      assert.ok(exists("a.post-date[data-share-url]"));
+      assert.ok(exists("a.post-date[data-post-number]"));
     },
   });
 
   componentTest("post - links", {
-    template: '{{mount-widget widget="post-contents" args=args}}',
+    template: hbs`{{mount-widget widget="post-contents" args=args}}`,
     beforeEach() {
       this.set("args", {
         cooked:
@@ -44,12 +47,42 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
     },
   });
 
+  componentTest("post - onebox links", {
+    template: hbs`{{mount-widget widget="post-contents" args=args}}`,
+    beforeEach() {
+      this.set("args", {
+        cooked: `
+        <p><a href="https://example.com">Other URL</a></p>
+
+        <aside class="onebox twitterstatus" data-onebox-src="https://twitter.com/codinghorror">
+          <header class="source">
+             <a href="https://twitter.com/codinghorror" target="_blank" rel="noopener">twitter.com</a>
+          </header>
+          <article class="onebox-body">
+             <h4><a href="https://twitter.com/codinghorror" target="_blank" rel="noopener">Jeff Atwood</a></h4>
+             <div class="twitter-screen-name"><a href="https://twitter.com/codinghorror" target="_blank" rel="noopener">@codinghorror</a></div>
+          </article>
+        </aside>`,
+        linkCounts: [
+          { url: "https://example.com", clicks: 1 },
+          { url: "https://twitter.com/codinghorror", clicks: 2 },
+        ],
+      });
+    },
+    async test(assert) {
+      assert.equal(queryAll(".badge.clicks").length, 2);
+      assert.equal(queryAll(".badge.clicks:nth(0)").text(), "1");
+      assert.equal(queryAll(".badge.clicks:nth(1)").text(), "2");
+    },
+  });
+
   componentTest("wiki", {
-    template:
-      '{{mount-widget widget="post" args=args showHistory=(action "showHistory")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args showHistory=showHistory}}
+    `,
     beforeEach() {
       this.set("args", { wiki: true, version: 2, canViewEditHistory: true });
-      this.on("showHistory", () => (this.historyShown = true));
+      this.set("showHistory", () => (this.historyShown = true));
     },
     async test(assert) {
       await click(".post-info .wiki");
@@ -61,11 +94,12 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   });
 
   componentTest("wiki without revision", {
-    template:
-      '{{mount-widget widget="post" args=args editPost=(action "editPost")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args editPost=editPost}}
+    `,
     beforeEach() {
       this.set("args", { wiki: true, version: 1, canViewEditHistory: true });
-      this.on("editPost", () => (this.editPostCalled = true));
+      this.set("editPost", () => (this.editPostCalled = true));
     },
     async test(assert) {
       await click(".post-info .wiki");
@@ -74,11 +108,12 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   });
 
   componentTest("via-email", {
-    template:
-      '{{mount-widget widget="post" args=args showRawEmail=(action "showRawEmail")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args showRawEmail=showRawEmail}}
+    `,
     beforeEach() {
       this.set("args", { via_email: true, canViewRawEmail: true });
-      this.on("showRawEmail", () => (this.rawEmailShown = true));
+      this.set("showRawEmail", () => (this.rawEmailShown = true));
     },
     async test(assert) {
       await click(".post-info.via-email");
@@ -90,11 +125,12 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   });
 
   componentTest("via-email without permission", {
-    template:
-      '{{mount-widget widget="post" args=args showRawEmail=(action "showRawEmail")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args showRawEmail=showRawEmail}}
+    `,
     beforeEach() {
       this.set("args", { via_email: true, canViewRawEmail: false });
-      this.on("showRawEmail", () => (this.rawEmailShown = true));
+      this.set("showRawEmail", () => (this.rawEmailShown = true));
     },
     async test(assert) {
       await click(".post-info.via-email");
@@ -106,24 +142,26 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   });
 
   componentTest("history", {
-    template:
-      '{{mount-widget widget="post" args=args showHistory=(action "showHistory")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args showHistory=showHistory}}
+    `,
     beforeEach() {
       this.set("args", { version: 3, canViewEditHistory: true });
-      this.on("showHistory", () => (this.historyShown = true));
+      this.set("showHistory", () => (this.historyShown = true));
     },
     async test(assert) {
-      await click(".post-info.edits");
+      await click(".post-info.edits button");
       assert.ok(this.historyShown, "clicking the pencil shows the history");
     },
   });
 
   componentTest("history without view permission", {
-    template:
-      '{{mount-widget widget="post" args=args showHistory=(action "showHistory")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args showHistory=showHistory}}
+    `,
     beforeEach() {
       this.set("args", { version: 3, canViewEditHistory: false });
-      this.on("showHistory", () => (this.historyShown = true));
+      this.set("showHistory", () => (this.historyShown = true));
     },
     async test(assert) {
       await click(".post-info.edits");
@@ -135,18 +173,18 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   });
 
   componentTest("whisper", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", { isWhisper: true });
     },
     test(assert) {
-      assert.ok(queryAll(".topic-post.whisper").length === 1);
-      assert.ok(queryAll(".post-info.whisper").length === 1);
+      assert.equal(count(".topic-post.whisper"), 1);
+      assert.equal(count(".post-info.whisper"), 1);
     },
   });
 
   componentTest("like count button", {
-    template: '{{mount-widget widget="post" model=post args=args}}',
+    template: hbs`{{mount-widget widget="post" model=post args=args}}`,
     beforeEach(store) {
       const topic = store.createRecord("topic", { id: 123 });
       const post = store.createRecord("post", {
@@ -160,83 +198,85 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
       this.set("args", { likeCount: 1 });
     },
     async test(assert) {
-      assert.ok(queryAll("button.like-count").length === 1);
-      assert.ok(queryAll(".who-liked").length === 0);
+      assert.equal(count("button.like-count"), 1);
+      assert.ok(!exists(".who-liked"));
 
       // toggle it on
       await click("button.like-count");
-      assert.ok(queryAll(".who-liked").length === 1);
-      assert.ok(queryAll(".who-liked a.trigger-user-card").length === 1);
+      assert.equal(count(".who-liked"), 1);
+      assert.equal(count(".who-liked a.trigger-user-card"), 1);
 
       // toggle it off
       await click("button.like-count");
-      assert.ok(queryAll(".who-liked").length === 0);
-      assert.ok(queryAll(".who-liked a.trigger-user-card").length === 0);
+      assert.ok(!exists(".who-liked"));
+      assert.ok(!exists(".who-liked a.trigger-user-card"));
     },
   });
 
   componentTest(`like count with no likes`, {
-    template: '{{mount-widget widget="post" model=post args=args}}',
+    template: hbs`{{mount-widget widget="post" model=post args=args}}`,
     beforeEach() {
       this.set("args", { likeCount: 0 });
     },
     test(assert) {
-      assert.ok(queryAll("button.like-count").length === 0);
+      assert.ok(!exists("button.like-count"));
     },
   });
 
   componentTest("share button", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", { shareUrl: "http://share-me.example.com" });
     },
     test(assert) {
       assert.ok(
-        !!queryAll(".actions button[data-share-url]").length,
+        exists(".actions button[data-share-url]"),
         "it renders a share button"
       );
     },
   });
 
   componentTest("liking", {
-    template:
-      '{{mount-widget widget="post-menu" args=args toggleLike=(action "toggleLike")}}',
+    template: hbs`
+      {{mount-widget widget="post-menu" args=args toggleLike=toggleLike}}
+    `,
     beforeEach() {
       const args = { showLike: true, canToggleLike: true };
       this.set("args", args);
-      this.on("toggleLike", () => {
+      this.set("toggleLike", () => {
         args.liked = !args.liked;
         args.likeCount = args.liked ? 1 : 0;
       });
     },
     async test(assert) {
-      assert.ok(!!queryAll(".actions button.like").length);
-      assert.ok(queryAll(".actions button.like-count").length === 0);
+      assert.ok(exists(".actions button.like"));
+      assert.ok(!exists(".actions button.like-count"));
 
       await click(".actions button.like");
-      assert.ok(!queryAll(".actions button.like").length);
-      assert.ok(!!queryAll(".actions button.has-like").length);
-      assert.ok(queryAll(".actions button.like-count").length === 1);
+      assert.ok(!exists(".actions button.like"));
+      assert.ok(exists(".actions button.has-like"));
+      assert.equal(count(".actions button.like-count"), 1);
 
       await click(".actions button.has-like");
-      assert.ok(!!queryAll(".actions button.like").length);
-      assert.ok(!queryAll(".actions button.has-like").length);
-      assert.ok(queryAll(".actions button.like-count").length === 0);
+      assert.ok(exists(".actions button.like"));
+      assert.ok(!exists(".actions button.has-like"));
+      assert.ok(!exists(".actions button.like-count"));
     },
   });
 
   componentTest("anon liking", {
-    template:
-      '{{mount-widget widget="post-menu" args=args showLogin=(action "showLogin")}}',
+    template: hbs`
+      {{mount-widget widget="post-menu" args=args showLogin=showLogin}}
+    `,
     anonymous: true,
     beforeEach() {
       const args = { showLike: true };
       this.set("args", args);
-      this.on("showLogin", () => (this.loginShown = true));
+      this.set("showLogin", () => (this.loginShown = true));
     },
     async test(assert) {
-      assert.ok(!!queryAll(".actions button.like").length);
-      assert.ok(queryAll(".actions button.like-count").length === 0);
+      assert.ok(exists(".actions button.like"));
+      assert.ok(!exists(".actions button.like-count"));
 
       assert.equal(
         queryAll("button.like").attr("title"),
@@ -250,11 +290,12 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   });
 
   componentTest("edit button", {
-    template:
-      '{{mount-widget widget="post" args=args editPost=(action "editPost")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args editPost=editPost}}
+    `,
     beforeEach() {
       this.set("args", { canEdit: true });
-      this.on("editPost", () => (this.editPostCalled = true));
+      this.set("editPost", () => (this.editPostCalled = true));
     },
     async test(assert) {
       await click("button.edit");
@@ -263,25 +304,22 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   });
 
   componentTest(`edit button - can't edit`, {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", { canEdit: false });
     },
     test(assert) {
-      assert.equal(
-        queryAll("button.edit").length,
-        0,
-        `button is not displayed`
-      );
+      assert.ok(!exists("button.edit"), "button is not displayed");
     },
   });
 
   componentTest("recover button", {
-    template:
-      '{{mount-widget widget="post" args=args deletePost=(action "deletePost")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args deletePost=deletePost}}
+    `,
     beforeEach() {
       this.set("args", { canDelete: true });
-      this.on("deletePost", () => (this.deletePostCalled = true));
+      this.set("deletePost", () => (this.deletePostCalled = true));
     },
     async test(assert) {
       await click("button.delete");
@@ -290,11 +328,12 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   });
 
   componentTest("delete topic button", {
-    template:
-      '{{mount-widget widget="post" args=args deletePost=(action "deletePost")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args deletePost=deletePost}}
+    `,
     beforeEach() {
       this.set("args", { canDeleteTopic: true });
-      this.on("deletePost", () => (this.deletePostCalled = true));
+      this.set("deletePost", () => (this.deletePostCalled = true));
     },
     async test(assert) {
       await click("button.delete");
@@ -303,23 +342,19 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   });
 
   componentTest(`delete topic button - can't delete`, {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", { canDeleteTopic: false });
     },
     test(assert) {
-      assert.equal(
-        queryAll("button.delete").length,
-        0,
-        `button is not displayed`
-      );
+      assert.ok(!exists("button.delete"), `button is not displayed`);
     },
   });
 
   componentTest(
     `delete topic button - can't delete when topic author without permission`,
     {
-      template: '{{mount-widget widget="post" args=args}}',
+      template: hbs`{{mount-widget widget="post" args=args}}`,
       beforeEach() {
         this.set("args", {
           canDeleteTopic: false,
@@ -331,16 +366,8 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
       async test(assert) {
         await click(".show-more-actions");
 
-        assert.equal(
-          queryAll("button.create-flag").length,
-          1,
-          `button is displayed`
-        );
-        assert.equal(
-          queryAll("button.delete").length,
-          1,
-          `button is displayed`
-        );
+        assert.equal(count("button.create-flag"), 1, `button is displayed`);
+        assert.equal(count("button.delete"), 1, `button is displayed`);
         assert.equal(
           queryAll("button.delete").attr("title"),
           I18n.t("post.controls.delete_topic_disallowed"),
@@ -351,11 +378,12 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   );
 
   componentTest("recover topic button", {
-    template:
-      '{{mount-widget widget="post" args=args recoverPost=(action "recoverPost")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args recoverPost=recoverPost}}
+    `,
     beforeEach() {
       this.set("args", { canRecoverTopic: true });
-      this.on("recoverPost", () => (this.recovered = true));
+      this.set("recoverPost", () => (this.recovered = true));
     },
     async test(assert) {
       await click("button.recover");
@@ -364,25 +392,22 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   });
 
   componentTest(`recover topic button - can't recover`, {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", { canRecoverTopic: false });
     },
     test(assert) {
-      assert.equal(
-        queryAll("button.recover").length,
-        0,
-        `button is not displayed`
-      );
+      assert.ok(!exists("button.recover"), `button is not displayed`);
     },
   });
 
   componentTest("delete post button", {
-    template:
-      '{{mount-widget widget="post" args=args deletePost=(action "deletePost")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args deletePost=deletePost}}
+    `,
     beforeEach() {
       this.set("args", { canDelete: true, canFlag: true });
-      this.on("deletePost", () => (this.deletePostCalled = true));
+      this.set("deletePost", () => (this.deletePostCalled = true));
     },
     async test(assert) {
       await click(".show-more-actions");
@@ -392,21 +417,17 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   });
 
   componentTest(`delete post button - can't delete`, {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", { canDelete: false });
     },
     test(assert) {
-      assert.equal(
-        queryAll("button.delete").length,
-        0,
-        `button is not displayed`
-      );
+      assert.ok(!exists("button.delete"), `button is not displayed`);
     },
   });
 
   componentTest(`delete post button - can't delete, can't flag`, {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", {
         canDeleteTopic: false,
@@ -415,25 +436,18 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
       });
     },
     test(assert) {
-      assert.equal(
-        queryAll("button.delete").length,
-        0,
-        `delete button is not displayed`
-      );
-      assert.equal(
-        queryAll("button.create-flag").length,
-        0,
-        `flag button is not displayed`
-      );
+      assert.ok(!exists("button.delete"), `delete button is not displayed`);
+      assert.ok(!exists("button.create-flag"), `flag button is not displayed`);
     },
   });
 
   componentTest("recover post button", {
-    template:
-      '{{mount-widget widget="post" args=args recoverPost=(action "recoverPost")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args recoverPost=recoverPost}}
+    `,
     beforeEach() {
       this.set("args", { canRecover: true });
-      this.on("recoverPost", () => (this.recovered = true));
+      this.set("recoverPost", () => (this.recovered = true));
     },
     async test(assert) {
       await click("button.recover");
@@ -442,28 +456,25 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   });
 
   componentTest(`recover post button - can't recover`, {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", { canRecover: false });
     },
     test(assert) {
-      assert.equal(
-        queryAll("button.recover").length,
-        0,
-        `button is not displayed`
-      );
+      assert.ok(!exists("button.recover"), `button is not displayed`);
     },
   });
 
   componentTest(`flagging`, {
-    template:
-      '{{mount-widget widget="post" args=args showFlags=(action "showFlags")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args showFlags=showFlags}}
+    `,
     beforeEach() {
       this.set("args", { canFlag: true });
-      this.on("showFlags", () => (this.flagsShown = true));
+      this.set("showFlags", () => (this.flagsShown = true));
     },
     async test(assert) {
-      assert.ok(queryAll("button.create-flag").length === 1);
+      assert.equal(count("button.create-flag"), 1);
 
       await click("button.create-flag");
       assert.ok(this.flagsShown, "it triggered the action");
@@ -471,47 +482,47 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   });
 
   componentTest(`flagging: can't flag`, {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", { canFlag: false });
     },
     test(assert) {
-      assert.ok(queryAll("button.create-flag").length === 0);
+      assert.ok(!exists("button.create-flag"));
     },
   });
 
   componentTest(`flagging: can't flag when post is hidden`, {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", { canFlag: true, hidden: true });
     },
     test(assert) {
-      assert.ok(queryAll("button.create-flag").length === 0);
+      assert.ok(!exists("button.create-flag"));
     },
   });
 
   componentTest(`read indicator`, {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", { read: true });
     },
     test(assert) {
-      assert.ok(queryAll(".read-state.read").length);
+      assert.ok(exists(".read-state.read"));
     },
   });
 
   componentTest(`unread indicator`, {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", { read: false });
     },
     test(assert) {
-      assert.ok(queryAll(".read-state").length);
+      assert.ok(exists(".read-state"));
     },
   });
 
-  componentTest("reply directly above (supressed)", {
-    template: '{{mount-widget widget="post" args=args}}',
+  componentTest("reply directly above (suppressed)", {
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", {
         replyToUsername: "eviltrout",
@@ -520,17 +531,13 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
       });
     },
     test(assert) {
-      assert.equal(queryAll("a.reply-to-tab").length, 0, "hides the tab");
-      assert.equal(
-        queryAll(".avoid-tab").length,
-        0,
-        "doesn't have the avoid tab class"
-      );
+      assert.ok(!exists("a.reply-to-tab"), "hides the tab");
+      assert.ok(!exists(".avoid-tab"), "doesn't have the avoid tab class");
     },
   });
 
-  componentTest("reply a few posts above (supressed)", {
-    template: '{{mount-widget widget="post" args=args}}',
+  componentTest("reply a few posts above (suppressed)", {
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", {
         replyToUsername: "eviltrout",
@@ -539,13 +546,13 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
       });
     },
     test(assert) {
-      assert.ok(queryAll("a.reply-to-tab").length, "shows the tab");
-      assert.equal(queryAll(".avoid-tab").length, 1, "has the avoid tab class");
+      assert.ok(exists("a.reply-to-tab"), "shows the tab");
+      assert.equal(count(".avoid-tab"), 1, "has the avoid tab class");
     },
   });
 
   componentTest("reply directly above", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", {
         replyToUsername: "eviltrout",
@@ -555,22 +562,20 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
       this.siteSettings.suppress_reply_directly_above = false;
     },
     async test(assert) {
-      assert.equal(queryAll(".avoid-tab").length, 1, "has the avoid tab class");
+      assert.equal(count(".avoid-tab"), 1, "has the avoid tab class");
       await click("a.reply-to-tab");
-      assert.equal(queryAll("section.embedded-posts.top .cooked").length, 1);
-      assert.equal(
-        queryAll("section.embedded-posts .d-icon-arrow-up").length,
-        1
-      );
+      assert.equal(count("section.embedded-posts.top .cooked"), 1);
+      assert.equal(count("section.embedded-posts .d-icon-arrow-up"), 1);
     },
   });
 
   componentTest("cooked content hidden", {
-    template:
-      '{{mount-widget widget="post" args=args expandHidden=(action "expandHidden")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args expandHidden=expandHidden}}
+    `,
     beforeEach() {
       this.set("args", { cooked_hidden: true });
-      this.on("expandHidden", () => (this.unhidden = true));
+      this.set("expandHidden", () => (this.unhidden = true));
     },
     async test(assert) {
       await click(".topic-body .expand-hidden");
@@ -579,180 +584,163 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   });
 
   componentTest("expand first post", {
-    template: '{{mount-widget widget="post" model=post args=args}}',
+    template: hbs`{{mount-widget widget="post" model=post args=args}}`,
     beforeEach(store) {
       this.set("args", { expandablePost: true });
       this.set("post", store.createRecord("post", { id: 1234 }));
     },
     async test(assert) {
       await click(".topic-body .expand-post");
-      assert.equal(queryAll(".expand-post").length, 0, "button is gone");
+      assert.ok(!exists(".expand-post"), "button is gone");
     },
   });
 
   componentTest("can't bookmark", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", { canBookmark: false });
     },
     test(assert) {
-      assert.equal(queryAll("button.bookmark").length, 0);
-      assert.equal(queryAll("button.bookmarked").length, 0);
+      assert.ok(!exists("button.bookmark"));
+      assert.ok(!exists("button.bookmarked"));
     },
   });
 
   componentTest("bookmark", {
-    template:
-      '{{mount-widget widget="post" args=args toggleBookmark=(action "toggleBookmark")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args toggleBookmark=toggleBookmark}}
+    `,
     beforeEach() {
       const args = { canBookmark: true };
 
       this.set("args", args);
-      this.on("toggleBookmark", () => (args.bookmarked = true));
+      this.set("toggleBookmark", () => (args.bookmarked = true));
     },
     async test(assert) {
-      assert.equal(queryAll(".post-menu-area .bookmark").length, 1);
-      assert.equal(queryAll("button.bookmarked").length, 0);
+      assert.equal(count(".post-menu-area .bookmark"), 1);
+      assert.ok(!exists("button.bookmarked"));
     },
   });
 
   componentTest("can't show admin menu when you can't manage", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", { canManage: false });
     },
     test(assert) {
-      assert.equal(queryAll(".post-menu-area .show-post-admin-menu").length, 0);
+      assert.ok(!exists(".post-menu-area .show-post-admin-menu"));
     },
   });
 
   componentTest("show admin menu", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", { canManage: true });
     },
     async test(assert) {
-      assert.equal(queryAll(".post-admin-menu").length, 0);
+      assert.ok(!exists(".post-admin-menu"));
       await click(".post-menu-area .show-post-admin-menu");
-      assert.equal(
-        queryAll(".post-admin-menu").length,
-        1,
-        "it shows the popup"
-      );
+      assert.equal(count(".post-admin-menu"), 1, "it shows the popup");
       await click(".post-menu-area");
-      assert.equal(
-        queryAll(".post-admin-menu").length,
-        0,
+      assert.ok(
+        !exists(".post-admin-menu"),
         "clicking outside clears the popup"
       );
     },
   });
 
   componentTest("toggle moderator post", {
-    template:
-      '{{mount-widget widget="post" args=args togglePostType=(action "togglePostType")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args togglePostType=togglePostType}}
+    `,
     beforeEach() {
       this.currentUser.set("moderator", true);
       this.set("args", { canManage: true });
-      this.on("togglePostType", () => (this.toggled = true));
+      this.set("togglePostType", () => (this.toggled = true));
     },
     async test(assert) {
       await click(".post-menu-area .show-post-admin-menu");
       await click(".post-admin-menu .toggle-post-type");
 
       assert.ok(this.toggled);
-      assert.equal(
-        queryAll(".post-admin-menu").length,
-        0,
-        "also hides the menu"
-      );
+      assert.ok(!exists(".post-admin-menu"), "also hides the menu");
     },
   });
   componentTest("toggle moderator post", {
-    template:
-      '{{mount-widget widget="post" args=args togglePostType=(action "togglePostType")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args togglePostType=togglePostType}}
+    `,
     beforeEach() {
       this.currentUser.set("moderator", true);
       this.set("args", { canManage: true });
-      this.on("togglePostType", () => (this.toggled = true));
+      this.set("togglePostType", () => (this.toggled = true));
     },
     async test(assert) {
       await click(".post-menu-area .show-post-admin-menu");
       await click(".post-admin-menu .toggle-post-type");
 
       assert.ok(this.toggled);
-      assert.equal(
-        queryAll(".post-admin-menu").length,
-        0,
-        "also hides the menu"
-      );
+      assert.ok(!exists(".post-admin-menu"), "also hides the menu");
     },
   });
 
   componentTest("rebake post", {
-    template:
-      '{{mount-widget widget="post" args=args rebakePost=(action "rebakePost")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args rebakePost=rebakePost}}
+    `,
     beforeEach() {
       this.set("args", { canManage: true });
-      this.on("rebakePost", () => (this.baked = true));
+      this.set("rebakePost", () => (this.baked = true));
     },
     async test(assert) {
       await click(".post-menu-area .show-post-admin-menu");
       await click(".post-admin-menu .rebuild-html");
       assert.ok(this.baked);
-      assert.equal(
-        queryAll(".post-admin-menu").length,
-        0,
-        "also hides the menu"
-      );
+      assert.ok(!exists(".post-admin-menu"), "also hides the menu");
     },
   });
 
   componentTest("unhide post", {
-    template:
-      '{{mount-widget widget="post" args=args unhidePost=(action "unhidePost")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args unhidePost=unhidePost}}
+    `,
     beforeEach() {
+      this.currentUser.admin = true;
       this.set("args", { canManage: true, hidden: true });
-      this.on("unhidePost", () => (this.unhidden = true));
+      this.set("unhidePost", () => (this.unhidden = true));
     },
     async test(assert) {
       await click(".post-menu-area .show-post-admin-menu");
       await click(".post-admin-menu .unhide-post");
       assert.ok(this.unhidden);
-      assert.equal(
-        queryAll(".post-admin-menu").length,
-        0,
-        "also hides the menu"
-      );
+      assert.ok(!exists(".post-admin-menu"), "also hides the menu");
     },
   });
 
   componentTest("change owner", {
-    template:
-      '{{mount-widget widget="post" args=args changePostOwner=(action "changePostOwner")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args changePostOwner=changePostOwner}}
+    `,
     beforeEach() {
       this.currentUser.admin = true;
       this.set("args", { canManage: true });
-      this.on("changePostOwner", () => (this.owned = true));
+      this.set("changePostOwner", () => (this.owned = true));
     },
     async test(assert) {
       await click(".post-menu-area .show-post-admin-menu");
       await click(".post-admin-menu .change-owner");
       assert.ok(this.owned);
-      assert.equal(
-        queryAll(".post-admin-menu").length,
-        0,
-        "also hides the menu"
-      );
+      assert.ok(!exists(".post-admin-menu"), "also hides the menu");
     },
   });
 
   componentTest("reply", {
-    template:
-      '{{mount-widget widget="post" args=args replyToPost=(action "replyToPost")}}',
+    template: hbs`
+      {{mount-widget widget="post" args=args replyToPost=replyToPost}}
+    `,
     beforeEach() {
       this.set("args", { canCreatePost: true });
-      this.on("replyToPost", () => (this.replied = true));
+      this.set("replyToPost", () => (this.replied = true));
     },
     async test(assert) {
       await click(".post-controls .create");
@@ -761,75 +749,72 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   });
 
   componentTest("reply - without permissions", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", { canCreatePost: false });
     },
     test(assert) {
-      assert.equal(queryAll(".post-controls .create").length, 0);
+      assert.ok(!exists(".post-controls .create"));
     },
   });
 
   componentTest("replies - no replies", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", { replyCount: 0 });
     },
     test(assert) {
-      assert.equal(queryAll("button.show-replies").length, 0);
+      assert.ok(!exists("button.show-replies"));
     },
   });
 
   componentTest("replies - multiple replies", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.siteSettings.suppress_reply_directly_below = true;
       this.set("args", { replyCount: 2, replyDirectlyBelow: true });
     },
     test(assert) {
-      assert.equal(queryAll("button.show-replies").length, 1);
+      assert.equal(count("button.show-replies"), 1);
     },
   });
 
   componentTest("replies - one below, suppressed", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.siteSettings.suppress_reply_directly_below = true;
       this.set("args", { replyCount: 1, replyDirectlyBelow: true });
     },
     test(assert) {
-      assert.equal(queryAll("button.show-replies").length, 0);
+      assert.ok(!exists("button.show-replies"));
     },
   });
 
   componentTest("replies - one below, not suppressed", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.siteSettings.suppress_reply_directly_below = false;
       this.set("args", { id: 6654, replyCount: 1, replyDirectlyBelow: true });
     },
     async test(assert) {
       await click("button.show-replies");
-      assert.equal(queryAll("section.embedded-posts.bottom .cooked").length, 1);
-      assert.equal(
-        queryAll("section.embedded-posts .d-icon-arrow-down").length,
-        1
-      );
+      assert.equal(count("section.embedded-posts.bottom .cooked"), 1);
+      assert.equal(count("section.embedded-posts .d-icon-arrow-down"), 1);
     },
   });
 
   componentTest("topic map not shown", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", { showTopicMap: false });
     },
     test(assert) {
-      assert.equal(queryAll(".topic-map").length, 0);
+      assert.ok(!exists(".topic-map"));
     },
   });
 
   componentTest("topic map - few posts", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", {
         showTopicMap: true,
@@ -838,15 +823,14 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
       });
     },
     async test(assert) {
-      assert.equal(
-        queryAll("li.avatars a.poster").length,
-        0,
+      assert.ok(
+        !exists("li.avatars a.poster"),
         "shows no participants when collapsed"
       );
 
       await click("nav.buttons button");
       assert.equal(
-        queryAll(".topic-map-expanded a.poster").length,
+        count(".topic-map-expanded a.poster"),
         2,
         "shows all when expanded"
       );
@@ -854,7 +838,7 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   });
 
   componentTest("topic map - participants", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", {
         showTopicMap: true,
@@ -870,24 +854,24 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
     },
     async test(assert) {
       assert.equal(
-        queryAll("li.avatars a.poster").length,
+        count("li.avatars a.poster"),
         3,
         "limits to three participants"
       );
 
       await click("nav.buttons button");
-      assert.equal(queryAll("li.avatars a.poster").length, 0);
+      assert.ok(!exists("li.avatars a.poster"));
       assert.equal(
-        queryAll(".topic-map-expanded a.poster").length,
+        count(".topic-map-expanded a.poster"),
         4,
         "shows all when expanded"
       );
-      assert.equal(queryAll("a.poster.toggled").length, 2, "two are toggled");
+      assert.equal(count("a.poster.toggled"), 2, "two are toggled");
     },
   });
 
   componentTest("topic map - links", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", {
         showTopicMap: true,
@@ -902,23 +886,23 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
       });
     },
     async test(assert) {
-      assert.equal(queryAll(".topic-map").length, 1);
-      assert.equal(queryAll(".map.map-collapsed").length, 1);
-      assert.equal(queryAll(".topic-map-expanded").length, 0);
+      assert.equal(count(".topic-map"), 1);
+      assert.equal(count(".map.map-collapsed"), 1);
+      assert.ok(!exists(".topic-map-expanded"));
 
       await click("nav.buttons button");
-      assert.equal(queryAll(".map.map-collapsed").length, 0);
-      assert.equal(queryAll(".topic-map .d-icon-chevron-up").length, 1);
-      assert.equal(queryAll(".topic-map-expanded").length, 1);
+      assert.ok(!exists(".map.map-collapsed"));
+      assert.equal(count(".topic-map .d-icon-chevron-up"), 1);
+      assert.equal(count(".topic-map-expanded"), 1);
       assert.equal(
-        queryAll(".topic-map-expanded .topic-link").length,
+        count(".topic-map-expanded .topic-link"),
         5,
         "it limits the links displayed"
       );
 
       await click(".link-summary button");
       assert.equal(
-        queryAll(".topic-map-expanded .topic-link").length,
+        count(".topic-map-expanded .topic-link"),
         6,
         "all links now shown"
       );
@@ -926,24 +910,23 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   });
 
   componentTest("topic map - no summary", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", { showTopicMap: true });
     },
     test(assert) {
-      assert.equal(queryAll(".toggle-summary").length, 0);
+      assert.ok(!exists(".toggle-summary"));
     },
   });
 
   componentTest("topic map - has summary", {
-    template:
-      '{{mount-widget widget="post" args=args showSummary=(action "showSummary")}}',
+    template: hbs`{{mount-widget widget="post" args=args showSummary=showSummary}}`,
     beforeEach() {
       this.set("args", { showTopicMap: true, hasTopicSummary: true });
-      this.on("showSummary", () => (this.summaryToggled = true));
+      this.set("showSummary", () => (this.summaryToggled = true));
     },
     async test(assert) {
-      assert.equal(queryAll(".toggle-summary").length, 1);
+      assert.equal(count(".toggle-summary"), 1);
 
       await click(".toggle-summary button");
       assert.ok(this.summaryToggled);
@@ -951,7 +934,7 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   });
 
   componentTest("pm map", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", {
         showTopicMap: true,
@@ -961,13 +944,13 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
       });
     },
     test(assert) {
-      assert.equal(queryAll(".private-message-map").length, 1);
-      assert.equal(queryAll(".private-message-map .user").length, 1);
+      assert.equal(count(".private-message-map"), 1);
+      assert.equal(count(".private-message-map .user"), 1);
     },
   });
 
   componentTest("post notice - with username", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       const twoDaysAgo = new Date();
       twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
@@ -996,7 +979,7 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   });
 
   componentTest("post notice - with name", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.siteSettings.display_name_on_posts = true;
       this.siteSettings.prioritize_username_in_ux = false;
@@ -1017,7 +1000,7 @@ discourseModule("Integration | Component | Widget | post", function (hooks) {
   });
 
   componentTest("show group request in post", {
-    template: '{{mount-widget widget="post" args=args}}',
+    template: hbs`{{mount-widget widget="post" args=args}}`,
     beforeEach() {
       this.set("args", {
         username: "foo",

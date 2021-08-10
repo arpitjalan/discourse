@@ -77,9 +77,9 @@ export default Controller.extend({
 
   @discourseComputed("context", "context_id")
   searchContextDescription(context, id) {
-    var name = id;
+    let name = id;
     if (context === "category") {
-      var category = Category.findById(id);
+      let category = Category.findById(id);
       if (!category) {
         return;
       }
@@ -245,8 +245,8 @@ export default Controller.extend({
     const searchKey = getSearchKey(args);
 
     ajax("/search", { data: args })
-      .then((results) => {
-        const model = translateResults(results) || {};
+      .then(async (results) => {
+        const model = (await translateResults(results)) || {};
 
         if (results.grouped_search_result) {
           this.set("q", results.grouped_search_result.term);
@@ -322,7 +322,7 @@ export default Controller.extend({
     },
 
     loadMore() {
-      var page = this.page;
+      let page = this.page;
       if (
         this.get("model.grouped_search_result.more_full_page_results") &&
         !this.loading &&

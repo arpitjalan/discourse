@@ -1,4 +1,5 @@
-import Controller, { inject } from "@ember/controller";
+import Controller, { inject as controller } from "@ember/controller";
+import Session from "discourse/models/session";
 import {
   iOSWithVisualViewport,
   isiPad,
@@ -34,7 +35,7 @@ export default Controller.extend({
   currentThemeId: -1,
   previewingColorScheme: false,
   selectedDarkColorSchemeId: null,
-  preferencesController: inject("preferences"),
+  preferencesController: controller("preferences"),
   makeColorSchemeDefault: true,
 
   init() {
@@ -153,13 +154,16 @@ export default Controller.extend({
     "themeId"
   )
   currentSchemeCanBeSelected(userThemes, userColorSchemes, themeId) {
-    if (!userThemes) {
+    if (!userThemes || !themeId) {
       return false;
     }
 
-    const currentThemeColorSchemeId = userThemes.findBy("id", themeId)
-      .color_scheme_id;
-    return userColorSchemes.findBy("id", currentThemeColorSchemeId);
+    const theme = userThemes.findBy("id", themeId);
+    if (!theme) {
+      return false;
+    }
+
+    return userColorSchemes.findBy("id", theme.color_scheme_id);
   },
 
   showColorSchemeNoneItem: not("currentSchemeCanBeSelected"),
@@ -234,9 +238,7 @@ export default Controller.extend({
       return value;
     },
     get() {
-      return this.currentSchemeCanBeSelected
-        ? this.session.userColorSchemeId
-        : null;
+      return this.session.userColorSchemeId;
     },
   }),
 
@@ -391,8 +393,10 @@ export default Controller.extend({
           this.themeId,
           true
         );
+        Session.currentProp("darkModeAvailable", false);
       } else {
         loadColorSchemeStylesheet(colorSchemeId, this.themeId, true);
+        Session.currentProp("darkModeAvailable", true);
       }
     },
 

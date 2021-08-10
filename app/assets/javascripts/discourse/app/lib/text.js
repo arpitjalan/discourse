@@ -21,6 +21,8 @@ function getOpts(opts) {
       customEmojiTranslation: context.site.custom_emoji_translation,
       siteSettings: context.siteSettings,
       formatUsername,
+      watchedWordsReplace: context.site.watched_words_replace,
+      watchedWordsLink: context.site.watched_words_link,
     },
     opts
   );
@@ -89,6 +91,7 @@ function emojiOptions() {
     emojiSet: siteSettings.emoji_set,
     enableEmojiShortcuts: siteSettings.enable_emoji_shortcuts,
     inlineEmoji: siteSettings.enable_inline_emoji_translation,
+    emojiCDNUrl: siteSettings.external_emoji_url,
   };
 }
 

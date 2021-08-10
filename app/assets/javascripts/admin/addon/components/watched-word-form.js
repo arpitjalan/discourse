@@ -6,6 +6,7 @@ import Component from "@ember/component";
 import I18n from "I18n";
 import WatchedWord from "admin/models/watched-word";
 import bootbox from "bootbox";
+import { equal } from "@ember/object/computed";
 import { isEmpty } from "@ember/utils";
 import { schedule } from "@ember/runloop";
 
@@ -14,13 +15,24 @@ export default Component.extend({
   formSubmitted: false,
   actionKey: null,
   showMessage: false,
+  selectedTags: null,
 
-  @discourseComputed("regularExpressions")
-  placeholderKey(regularExpressions) {
-    return (
-      "admin.watched_words.form.placeholder" +
-      (regularExpressions ? "_regexp" : "")
-    );
+  canReplace: equal("actionKey", "replace"),
+  canTag: equal("actionKey", "tag"),
+  canLink: equal("actionKey", "link"),
+
+  didInsertElement() {
+    this._super(...arguments);
+    this.set("selectedTags", []);
+  },
+
+  @discourseComputed("siteSettings.watched_words_regular_expressions")
+  placeholderKey(watchedWordsRegularExpressions) {
+    if (watchedWordsRegularExpressions) {
+      return "admin.watched_words.form.placeholder_regexp";
+    } else {
+      return "admin.watched_words.form.placeholder";
+    }
   },
 
   @observes("word")
@@ -42,6 +54,13 @@ export default Component.extend({
   },
 
   actions: {
+    changeSelectedTags(tags) {
+      this.setProperties({
+        selectedTags: tags,
+        replacement: tags.join(","),
+      });
+    },
+
     submit() {
       if (!this.isUniqueWord) {
         this.setProperties({
@@ -56,6 +75,10 @@ export default Component.extend({
 
         const watchedWord = WatchedWord.create({
           word: this.word,
+          replacement:
+            this.canReplace || this.canTag || this.canLink
+              ? this.replacement
+              : null,
           action: this.actionKey,
         });
 
@@ -64,7 +87,9 @@ export default Component.extend({
           .then((result) => {
             this.setProperties({
               word: "",
+              replacement: "",
               formSubmitted: false,
+              selectedTags: [],
               showMessage: true,
               message: I18n.t("admin.watched_words.form.success"),
             });
@@ -93,7 +118,7 @@ export default Component.extend({
   _init() {
     schedule("afterRender", () => {
       $(this.element.querySelector(".watched-word-input")).keydown((e) => {
-        if (e.keyCode === 13) {
+        if (e.key === "Enter") {
           this.send("submit");
         }
       });

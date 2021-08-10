@@ -29,7 +29,6 @@ describe TagsController do
         tags = response.parsed_body["tags"]
         expect(tags.length).to eq(1)
         expect(tags[0]['text']).to eq("topic-test")
-        expect(response.headers['X-Robots-Tag']).to eq('noindex')
       end
     end
 
@@ -106,7 +105,7 @@ describe TagsController do
     end
 
     context "when user can admin tags" do
-      it "succesfully retrieve all tags" do
+      it "successfully retrieve all tags" do
         sign_in(admin)
 
         get "/tags.json"
@@ -216,9 +215,6 @@ describe TagsController do
       topic_list = json["topic_list"]
 
       expect(topic_list["tags"].map { |t| t["id"] }).to contain_exactly(tag.id)
-      expect(topic_list["draft"]).to eq(nil)
-      expect(topic_list["draft_sequence"]).to eq(nil)
-      expect(topic_list["draft_key"]).to eq(Draft::NEW_TOPIC)
     end
 
     it "should handle invalid tags" do
@@ -477,7 +473,7 @@ describe TagsController do
       it "can't see pm tags" do
         get "/tags/personal_messages/#{regular_user.username}.json"
 
-        expect(response).not_to be_successful
+        expect(response.status).to eq(403)
       end
     end
 
@@ -489,7 +485,7 @@ describe TagsController do
       it "can't see pm tags for regular user" do
         get "/tags/personal_messages/#{regular_user.username}.json"
 
-        expect(response).not_to be_successful
+        expect(response.status).to eq(404)
       end
 
       it "can see their own pm tags" do
@@ -524,6 +520,14 @@ describe TagsController do
         tag = response.parsed_body['tags']
         expect(tag[0]["id"]).to eq('test')
       end
+
+      it 'works with usernames with a period' do
+        admin.update!(username: "test.test")
+
+        get "/tags/personal_messages/#{admin.username}.json"
+
+        expect(response.status).to eq(200)
+      end
     end
   end
 
@@ -553,6 +557,12 @@ describe TagsController do
       it "can filter by tag" do
         get "/tag/#{tag.name}/l/latest.json"
         expect(response.status).to eq(200)
+      end
+
+      it "can render a topic list from the latest endpoint" do
+        get "/tag/#{tag.name}/l/latest"
+        expect(response.status).to eq(200)
+        expect(response.body).to include("topic-list")
       end
 
       it "can filter by two tags" do
@@ -681,11 +691,13 @@ describe TagsController do
     fab!(:category) { Fabricate(:category) }
     fab!(:topic) { Fabricate(:topic, category: category) }
     fab!(:tag_topic)  { Fabricate(:topic, category: category, tags: [tag]) }
+    fab!(:tag_topic2)  { Fabricate(:topic, category: category, tags: [tag]) }
 
     before do
       SiteSetting.top_page_default_timeframe = 'all'
       TopTopic.create!(topic: topic, all_score: 1)
       TopTopic.create!(topic: tag_topic, all_score: 1)
+      TopTopic.create!(topic: tag_topic2, daily_score: 1)
     end
 
     it "can filter by tag" do
@@ -696,12 +708,27 @@ describe TagsController do
       expect(topic_ids).to eq([tag_topic.id])
     end
 
+    it "can filter by tag and period" do
+      get "/tag/#{tag.name}/l/top.json?period=daily"
+      expect(response.status).to eq(200)
+
+      list = response.parsed_body["topic_list"]
+      topic_ids = list["topics"].map { |topic| topic["id"] }
+      expect(topic_ids).to eq([tag_topic2.id])
+      expect(list["for_period"]).to eq("daily")
+    end
+
     it "can filter by both category and tag" do
       get "/tags/c/#{category.slug}/#{category.id}/#{tag.name}/l/top.json"
       expect(response.status).to eq(200)
 
       topic_ids = response.parsed_body["topic_list"]["topics"].map { |topic| topic["id"] }
       expect(topic_ids).to eq([tag_topic.id])
+    end
+
+    it "raises an error if the period is not valid" do
+      get "/tag/#{tag.name}/l/top.json?period=decadely"
+      expect(response.status).to eq(400)
     end
   end
 

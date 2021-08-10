@@ -28,8 +28,7 @@ export default Component.extend({
 
     schedule("afterRender", () => {
       $(this.element.querySelector(".external-url")).keydown((e) => {
-        // enter key
-        if (e.keyCode === 13) {
+        if (e.key === "Enter") {
           this.send("submit");
         }
       });
@@ -69,9 +68,13 @@ export default Component.extend({
               this.set("formSubmitted", false);
 
               let error;
-              if (e.responseJSON && e.responseJSON.errors) {
+              if (
+                e.jqXHR &&
+                e.jqXHR.responseJSON &&
+                e.jqXHR.responseJSON.errors
+              ) {
                 error = I18n.t("generic_error_with_reason", {
-                  error: e.responseJSON.errors.join(". "),
+                  error: e.jqXHR.responseJSON.errors.join(". "),
                 });
               } else {
                 error = I18n.t("generic_error");

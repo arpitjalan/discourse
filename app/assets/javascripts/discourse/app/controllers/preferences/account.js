@@ -4,25 +4,23 @@ import CanCheckEmails from "discourse/mixins/can-check-emails";
 import Controller from "@ember/controller";
 import EmberObject from "@ember/object";
 import I18n from "I18n";
-import { ajax } from "discourse/lib/ajax";
 import bootbox from "bootbox";
 import discourseComputed from "discourse-common/utils/decorators";
 import { findAll } from "discourse/models/login-method";
 import getURL from "discourse-common/lib/get-url";
 import { iconHTML } from "discourse-common/lib/icon-library";
-import logout from "discourse/lib/logout";
 import { popupAjaxError } from "discourse/lib/ajax-error";
-import showModal from "discourse/lib/show-modal";
-import { userPath } from "discourse/lib/url";
-
-// Number of tokens shown by default.
-const DEFAULT_AUTH_TOKENS_COUNT = 2;
 
 export default Controller.extend(CanCheckEmails, {
   init() {
     this._super(...arguments);
 
-    this.saveAttrNames = ["name", "title", "primary_group_id"];
+    this.saveAttrNames = [
+      "name",
+      "title",
+      "primary_group_id",
+      "flair_group_id",
+    ];
     this.set("revoking", {});
   },
 
@@ -32,10 +30,6 @@ export default Controller.extend(CanCheckEmails, {
   newNameInput: null,
   newTitleInput: null,
   newPrimaryGroupInput: null,
-
-  passwordProgress: null,
-
-  showAllAuthTokens: false,
 
   revoking: null,
 
@@ -56,6 +50,7 @@ export default Controller.extend(CanCheckEmails, {
   },
 
   canSelectTitle: gt("model.availableTitles.length", 0),
+  canSelectFlair: gt("model.availableFlairs.length", 0),
 
   @discourseComputed("model.filteredGroups")
   canSelectPrimaryGroup(primaryGroupOptions) {
@@ -63,17 +58,6 @@ export default Controller.extend(CanCheckEmails, {
       primaryGroupOptions.length > 0 &&
       this.siteSettings.user_selected_primary_groups
     );
-  },
-
-  @discourseComputed("model.is_anonymous")
-  canChangePassword(isAnonymous) {
-    if (isAnonymous) {
-      return false;
-    } else {
-      return (
-        !this.siteSettings.enable_sso && this.siteSettings.enable_local_logins
-      );
-    }
   },
 
   @discourseComputed("model.associated_accounts")
@@ -146,28 +130,6 @@ export default Controller.extend(CanCheckEmails, {
     return findAll().length > 0;
   },
 
-  @discourseComputed("showAllAuthTokens", "model.user_auth_tokens")
-  authTokens(showAllAuthTokens, tokens) {
-    tokens.sort((a, b) => {
-      if (a.is_active) {
-        return -1;
-      } else if (b.is_active) {
-        return 1;
-      } else {
-        return b.seen_at.localeCompare(a.seen_at);
-      }
-    });
-
-    return showAllAuthTokens
-      ? tokens
-      : tokens.slice(0, DEFAULT_AUTH_TOKENS_COUNT);
-  },
-
-  canShowAllAuthTokens: gt(
-    "model.user_auth_tokens.length",
-    DEFAULT_AUTH_TOKENS_COUNT
-  ),
-
   actions: {
     save() {
       this.set("saved", false);
@@ -176,6 +138,7 @@ export default Controller.extend(CanCheckEmails, {
         name: this.newNameInput,
         title: this.newTitleInput,
         primary_group_id: this.newPrimaryGroupInput,
+        flair_group_id: this.newFlairGroupId,
       });
 
       return this.model
@@ -202,31 +165,6 @@ export default Controller.extend(CanCheckEmails, {
         .finally(() => {
           email.set("resending", false);
         });
-    },
-
-    changePassword() {
-      if (!this.passwordProgress) {
-        this.set(
-          "passwordProgress",
-          I18n.t("user.change_password.in_progress")
-        );
-        return this.model
-          .changePassword()
-          .then(() => {
-            // password changed
-            this.setProperties({
-              changePasswordProgress: false,
-              passwordProgress: I18n.t("user.change_password.success"),
-            });
-          })
-          .catch(() => {
-            // password failed to change
-            this.setProperties({
-              changePasswordProgress: false,
-              passwordProgress: I18n.t("user.change_password.error"),
-            });
-          });
-      }
     },
 
     delete() {
@@ -279,32 +217,6 @@ export default Controller.extend(CanCheckEmails, {
         })
         .catch(popupAjaxError)
         .finally(() => this.set(`revoking.${account.name}`, false));
-    },
-
-    toggleShowAllAuthTokens() {
-      this.toggleProperty("showAllAuthTokens");
-    },
-
-    revokeAuthToken(token) {
-      ajax(
-        userPath(
-          `${this.get("model.username_lower")}/preferences/revoke-auth-token`
-        ),
-        {
-          type: "POST",
-          data: token ? { token_id: token.id } : {},
-        }
-      )
-        .then(() => {
-          if (!token) {
-            logout();
-          } // All sessions revoked
-        })
-        .catch(popupAjaxError);
-    },
-
-    showToken(token) {
-      showModal("auth-token", { model: token });
     },
 
     connectAccount(method) {

@@ -3,6 +3,8 @@
 class SvgSpriteController < ApplicationController
   skip_before_action :preload_json, :redirect_to_login_if_required, :check_xhr, :verify_authenticity_token, only: [:show, :search, :svg_icon]
 
+  before_action :apply_cdn_headers, only: [:show, :search, :svg_icon]
+
   requires_login except: [:show, :svg_icon]
 
   def show
@@ -10,13 +12,13 @@ class SvgSpriteController < ApplicationController
     no_cookies
 
     RailsMultisite::ConnectionManagement.with_hostname(params[:hostname]) do
-      theme_ids = params[:theme_ids].split(",").map(&:to_i)
+      theme_id = params[:theme_id].to_i if params[:theme_id].present?
 
-      if SvgSprite.version(theme_ids) != params[:version]
-        return redirect_to path(SvgSprite.path(theme_ids))
+      if SvgSprite.version(theme_id) != params[:version]
+        return redirect_to UrlHelper.absolute((SvgSprite.path(theme_id)))
       end
 
-      svg_sprite = "window.__svg_sprite = #{SvgSprite.bundle(theme_ids).inspect};"
+      svg_sprite = "window.__svg_sprite = #{SvgSprite.bundle(theme_id).inspect};"
 
       response.headers["Last-Modified"] = 10.years.ago.httpdate
       response.headers["Content-Length"] = svg_sprite.bytesize.to_s

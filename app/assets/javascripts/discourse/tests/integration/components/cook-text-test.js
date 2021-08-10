@@ -1,10 +1,8 @@
 import componentTest, {
   setupRenderingTest,
 } from "discourse/tests/helpers/component-test";
-import {
-  discourseModule,
-  queryAll,
-} from "discourse/tests/helpers/qunit-helpers";
+import { discourseModule, query } from "discourse/tests/helpers/qunit-helpers";
+import hbs from "htmlbars-inline-precompile";
 import pretender from "discourse/tests/helpers/create-pretender";
 import { resetCache } from "pretty-text/upload-short-url";
 
@@ -12,16 +10,16 @@ discourseModule("Integration | Component | cook-text", function (hooks) {
   setupRenderingTest(hooks);
 
   componentTest("renders markdown", {
-    template: '{{cook-text "_foo_" class="post-body"}}',
+    template: hbs`{{cook-text "_foo_" class="post-body"}}`,
 
     test(assert) {
-      const html = queryAll(".post-body")[0].innerHTML.trim();
+      const html = query(".post-body").innerHTML.trim();
       assert.equal(html, "<p><em>foo</em></p>");
     },
   });
 
   componentTest("resolves short URLs", {
-    template: `{{cook-text "![an image](upload://a.png)" class="post-body"}}`,
+    template: hbs`{{cook-text "![an image](upload://a.png)" class="post-body"}}`,
 
     beforeEach() {
       pretender.post("/uploads/lookup-urls", () => {
@@ -44,7 +42,7 @@ discourseModule("Integration | Component | cook-text", function (hooks) {
     },
 
     test(assert) {
-      const html = queryAll(".post-body")[0].innerHTML.trim();
+      const html = query(".post-body").innerHTML.trim();
       assert.equal(
         html,
         '<p><img src="/images/avatar.png" alt="an image"></p>'

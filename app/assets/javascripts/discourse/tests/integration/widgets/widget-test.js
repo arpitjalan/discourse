@@ -2,14 +2,18 @@ import componentTest, {
   setupRenderingTest,
 } from "discourse/tests/helpers/component-test";
 import {
+  count,
   discourseModule,
+  exists,
+  query,
   queryAll,
 } from "discourse/tests/helpers/qunit-helpers";
 import I18n from "I18n";
 import { Promise } from "rsvp";
 import { click } from "@ember/test-helpers";
 import { createWidget } from "discourse/widgets/widget";
-import hbs from "discourse/widgets/hbs-compiler";
+import hbs from "htmlbars-inline-precompile";
+import widgetHbs from "discourse/widgets/hbs-compiler";
 import { next } from "@ember/runloop";
 import { withPluginApi } from "discourse/lib/plugin-api";
 
@@ -17,12 +21,12 @@ discourseModule("Integration | Component | Widget | base", function (hooks) {
   setupRenderingTest(hooks);
 
   componentTest("widget attributes are passed in via args", {
-    template: `{{mount-widget widget="hello-test" args=args}}`,
+    template: hbs`{{mount-widget widget="hello-test" args=args}}`,
 
     beforeEach() {
       createWidget("hello-test", {
         tagName: "div.test",
-        template: hbs`Hello {{attrs.name}}`,
+        template: widgetHbs`Hello {{attrs.name}}`,
       });
 
       this.set("args", { name: "Robin" });
@@ -33,12 +37,30 @@ discourseModule("Integration | Component | Widget | base", function (hooks) {
     },
   });
 
+  componentTest("widget services", {
+    template: hbs`{{mount-widget widget="service-test"}}`,
+
+    beforeEach() {
+      createWidget("service-test", {
+        tagName: "div.base-url-test",
+        services: ["router"],
+        html() {
+          return this.router.rootURL;
+        },
+      });
+    },
+
+    test(assert) {
+      assert.equal(queryAll(".base-url-test").text(), "/");
+    },
+  });
+
   componentTest("hbs template - no tagName", {
-    template: `{{mount-widget widget="hbs-test" args=args}}`,
+    template: hbs`{{mount-widget widget="hbs-test" args=args}}`,
 
     beforeEach() {
       createWidget("hbs-test", {
-        template: hbs`<div class='test'>Hello {{attrs.name}}</div>`,
+        template: widgetHbs`<div class='test'>Hello {{attrs.name}}</div>`,
       });
 
       this.set("args", { name: "Robin" });
@@ -50,12 +72,12 @@ discourseModule("Integration | Component | Widget | base", function (hooks) {
   });
 
   componentTest("hbs template - with tagName", {
-    template: `{{mount-widget widget="hbs-test" args=args}}`,
+    template: hbs`{{mount-widget widget="hbs-test" args=args}}`,
 
     beforeEach() {
       createWidget("hbs-test", {
         tagName: "div.test",
-        template: hbs`Hello {{attrs.name}}`,
+        template: widgetHbs`Hello {{attrs.name}}`,
       });
 
       this.set("args", { name: "Robin" });
@@ -67,11 +89,11 @@ discourseModule("Integration | Component | Widget | base", function (hooks) {
   });
 
   componentTest("hbs template - with data attributes", {
-    template: `{{mount-widget widget="hbs-test" args=args}}`,
+    template: hbs`{{mount-widget widget="hbs-test" args=args}}`,
 
     beforeEach() {
       createWidget("hbs-test", {
-        template: hbs`<div class='mydiv' data-my-test='hello world'></div>`,
+        template: widgetHbs`<div class='mydiv' data-my-test='hello world'></div>`,
       });
     },
 
@@ -81,7 +103,7 @@ discourseModule("Integration | Component | Widget | base", function (hooks) {
   });
 
   componentTest("buildClasses", {
-    template: `{{mount-widget widget="classname-test" args=args}}`,
+    template: hbs`{{mount-widget widget="classname-test" args=args}}`,
 
     beforeEach() {
       createWidget("classname-test", {
@@ -96,15 +118,12 @@ discourseModule("Integration | Component | Widget | base", function (hooks) {
     },
 
     test(assert) {
-      assert.ok(
-        queryAll(".test.static.cool-class").length,
-        "it has all the classes"
-      );
+      assert.ok(exists(".test.static.cool-class"), "it has all the classes");
     },
   });
 
   componentTest("buildAttributes", {
-    template: `{{mount-widget widget="attributes-test" args=args}}`,
+    template: hbs`{{mount-widget widget="attributes-test" args=args}}`,
 
     beforeEach() {
       createWidget("attributes-test", {
@@ -119,13 +138,13 @@ discourseModule("Integration | Component | Widget | base", function (hooks) {
     },
 
     test(assert) {
-      assert.ok(queryAll('.test[data-evil="trout"]').length);
-      assert.ok(queryAll('.test[aria-label="accessibility"]').length);
+      assert.ok(exists('.test[data-evil="trout"]'));
+      assert.ok(exists('.test[aria-label="accessibility"]'));
     },
   });
 
   componentTest("buildId", {
-    template: `{{mount-widget widget="id-test" args=args}}`,
+    template: hbs`{{mount-widget widget="id-test" args=args}}`,
 
     beforeEach() {
       createWidget("id-test", {
@@ -138,18 +157,18 @@ discourseModule("Integration | Component | Widget | base", function (hooks) {
     },
 
     test(assert) {
-      assert.ok(queryAll("#test-1234").length);
+      assert.ok(exists("#test-1234"));
     },
   });
 
   componentTest("widget state", {
-    template: `{{mount-widget widget="state-test"}}`,
+    template: hbs`{{mount-widget widget="state-test"}}`,
 
     beforeEach() {
       createWidget("state-test", {
         tagName: "button.test",
         buildKey: () => `button-test`,
-        template: hbs`{{state.clicks}} clicks`,
+        template: widgetHbs`{{state.clicks}} clicks`,
 
         defaultState() {
           return { clicks: 0 };
@@ -162,22 +181,22 @@ discourseModule("Integration | Component | Widget | base", function (hooks) {
     },
 
     async test(assert) {
-      assert.ok(queryAll("button.test").length, "it renders the button");
+      assert.ok(exists("button.test"), "it renders the button");
       assert.equal(queryAll("button.test").text(), "0 clicks");
 
-      await click(queryAll("button"));
+      await click(query("button"));
       assert.equal(queryAll("button.test").text(), "1 clicks");
     },
   });
 
   componentTest("widget update with promise", {
-    template: `{{mount-widget widget="promise-test"}}`,
+    template: hbs`{{mount-widget widget="promise-test"}}`,
 
     beforeEach() {
       createWidget("promise-test", {
         tagName: "button.test",
         buildKey: () => "promise-test",
-        template: hbs`
+        template: widgetHbs`
           {{#if state.name}}
             {{state.name}}
           {{else}}
@@ -199,59 +218,83 @@ discourseModule("Integration | Component | Widget | base", function (hooks) {
     async test(assert) {
       assert.equal(queryAll("button.test").text().trim(), "No name");
 
-      await click(queryAll("button"));
+      await click(query("button"));
       assert.equal(queryAll("button.test").text().trim(), "Robin");
     },
   });
 
   componentTest("widget attaching", {
-    template: `{{mount-widget widget="attach-test"}}`,
+    template: hbs`{{mount-widget widget="attach-test"}}`,
 
     beforeEach() {
       createWidget("test-embedded", { tagName: "div.embedded" });
 
       createWidget("attach-test", {
         tagName: "div.container",
-        template: hbs`{{attach widget="test-embedded" attrs=attrs}}`,
+        template: widgetHbs`{{attach widget="test-embedded" attrs=attrs}}`,
       });
     },
 
     test(assert) {
-      assert.ok(queryAll(".container").length, "renders container");
-      assert.ok(queryAll(".container .embedded").length, "renders attached");
+      assert.ok(exists(".container"), "renders container");
+      assert.ok(exists(".container .embedded"), "renders attached");
     },
   });
 
   componentTest("magic attaching by name", {
-    template: `{{mount-widget widget="attach-test"}}`,
+    template: hbs`{{mount-widget widget="attach-test"}}`,
 
     beforeEach() {
       createWidget("test-embedded", { tagName: "div.embedded" });
 
       createWidget("attach-test", {
         tagName: "div.container",
-        template: hbs`{{test-embedded attrs=attrs}}`,
+        template: widgetHbs`{{test-embedded attrs=attrs}}`,
       });
     },
 
     test(assert) {
-      assert.ok(queryAll(".container").length, "renders container");
-      assert.ok(queryAll(".container .embedded").length, "renders attached");
+      assert.ok(exists(".container"), "renders container");
+      assert.ok(exists(".container .embedded"), "renders attached");
     },
   });
 
   componentTest("custom attrs to a magic attached widget", {
-    template: `{{mount-widget widget="attach-test"}}`,
+    template: hbs`{{mount-widget widget="attach-test"}}`,
 
     beforeEach() {
       createWidget("testing", {
         tagName: "span.value",
-        template: hbs`{{attrs.value}}`,
+        template: widgetHbs`{{attrs.value}}`,
       });
 
       createWidget("attach-test", {
         tagName: "div.container",
-        template: hbs`{{testing value=(concat "hello" " " "world")}}`,
+        template: widgetHbs`{{testing value=(concat "hello" " " "world")}}`,
+      });
+    },
+
+    test(assert) {
+      assert.ok(exists(".container"), "renders container");
+      assert.equal(queryAll(".container .value").text(), "hello world");
+    },
+  });
+
+  componentTest("using transformed values in a subexpression", {
+    template: hbs`{{mount-widget widget="attach-test"}}`,
+
+    beforeEach() {
+      createWidget("testing", {
+        tagName: "span.value",
+        template: widgetHbs`{{attrs.value}}`,
+      });
+
+      createWidget("attach-test", {
+        transform() {
+          return { someValue: "world" };
+        },
+        tagName: "div.container",
+        template: widgetHbs`{{testing value=(concat "hello" " " transformed.someValue)}}`,
       });
     },
 
@@ -262,27 +305,27 @@ discourseModule("Integration | Component | Widget | base", function (hooks) {
   });
 
   componentTest("handlebars d-icon", {
-    template: `{{mount-widget widget="hbs-icon-test" args=args}}`,
+    template: hbs`{{mount-widget widget="hbs-icon-test" args=args}}`,
 
     beforeEach() {
       createWidget("hbs-icon-test", {
-        template: hbs`{{d-icon "arrow-down"}}`,
+        template: widgetHbs`{{d-icon "arrow-down"}}`,
       });
     },
 
     test(assert) {
-      assert.equal(queryAll(".d-icon-arrow-down").length, 1);
+      assert.equal(count(".d-icon-arrow-down"), 1);
     },
   });
 
   componentTest("handlebars i18n", {
     _translations: I18n.translations,
 
-    template: `{{mount-widget widget="hbs-i18n-test" args=args}}`,
+    template: hbs`{{mount-widget widget="hbs-i18n-test" args=args}}`,
 
     beforeEach() {
       createWidget("hbs-i18n-test", {
-        template: hbs`
+        template: widgetHbs`
           <span class='string'>{{i18n "hbs_test0"}}</span>
           <span class='var'>{{i18n attrs.key}}</span>
           <a href title={{i18n "hbs_test0"}}>test</a>
@@ -304,7 +347,7 @@ discourseModule("Integration | Component | Widget | base", function (hooks) {
     },
 
     test(assert) {
-      // comin up
+      // coming up
       assert.equal(queryAll("span.string").text(), "evil");
       assert.equal(queryAll("span.var").text(), "trout");
       assert.equal(queryAll("a").prop("title"), "evil");
@@ -312,12 +355,12 @@ discourseModule("Integration | Component | Widget | base", function (hooks) {
   });
 
   componentTest("handlebars #each", {
-    template: `{{mount-widget widget="hbs-each-test" args=args}}`,
+    template: hbs`{{mount-widget widget="hbs-each-test" args=args}}`,
 
     beforeEach() {
       createWidget("hbs-each-test", {
         tagName: "ul",
-        template: hbs`
+        template: widgetHbs`
           {{#each attrs.items as |item|}}
             <li>{{item}}</li>
           {{/each}}
@@ -330,18 +373,18 @@ discourseModule("Integration | Component | Widget | base", function (hooks) {
     },
 
     test(assert) {
-      assert.equal(queryAll("ul li").length, 3);
+      assert.equal(count("ul li"), 3);
       assert.equal(queryAll("ul li:nth-of-type(1)").text(), "one");
     },
   });
 
   componentTest("widget decorating", {
-    template: `{{mount-widget widget="decorate-test"}}`,
+    template: hbs`{{mount-widget widget="decorate-test"}}`,
 
     beforeEach() {
       createWidget("decorate-test", {
         tagName: "div.decorate",
-        template: hbs`main content`,
+        template: widgetHbs`main content`,
       });
 
       withPluginApi("0.1", (api) => {
@@ -356,19 +399,19 @@ discourseModule("Integration | Component | Widget | base", function (hooks) {
     },
 
     test(assert) {
-      assert.ok(queryAll(".decorate").length);
+      assert.ok(exists(".decorate"));
       assert.equal(queryAll(".decorate b").text(), "before");
       assert.equal(queryAll(".decorate i").text(), "after");
     },
   });
 
   componentTest("widget settings", {
-    template: `{{mount-widget widget="settings-test"}}`,
+    template: hbs`{{mount-widget widget="settings-test"}}`,
 
     beforeEach() {
       createWidget("settings-test", {
         tagName: "div.settings",
-        template: hbs`age is {{settings.age}}`,
+        template: widgetHbs`age is {{settings.age}}`,
         settings: { age: 36 },
       });
     },
@@ -379,12 +422,12 @@ discourseModule("Integration | Component | Widget | base", function (hooks) {
   });
 
   componentTest("override settings", {
-    template: `{{mount-widget widget="ov-settings-test"}}`,
+    template: hbs`{{mount-widget widget="ov-settings-test"}}`,
 
     beforeEach() {
       createWidget("ov-settings-test", {
         tagName: "div.settings",
-        template: hbs`age is {{settings.age}}`,
+        template: widgetHbs`age is {{settings.age}}`,
         settings: { age: 36 },
       });
 
@@ -399,12 +442,12 @@ discourseModule("Integration | Component | Widget | base", function (hooks) {
   });
 
   componentTest("get accessor", {
-    template: `{{mount-widget widget="get-accessor-test"}}`,
+    template: hbs`{{mount-widget widget="get-accessor-test"}}`,
 
     beforeEach() {
       createWidget("get-accessor-test", {
         tagName: "div.test",
-        template: hbs`Hello {{transformed.name}}`,
+        template: widgetHbs`Hello {{transformed.name}}`,
         transform() {
           return {
             name: this.get("currentUser.username"),
@@ -415,6 +458,25 @@ discourseModule("Integration | Component | Widget | base", function (hooks) {
 
     test(assert) {
       assert.equal(queryAll("div.test").text(), "Hello eviltrout");
+    },
+  });
+
+  componentTest("tagName", {
+    template: hbs`{{mount-widget widget="tag-name-override-test"}}`,
+
+    beforeEach() {
+      createWidget("test-override", { tagName: "div.not-override" });
+
+      createWidget("tag-name-override-test", {
+        template: widgetHbs`{{attach widget="test-override" attrs=attrs otherOpts=(hash tagName="section.override")}}`,
+      });
+    },
+
+    test(assert) {
+      assert.ok(
+        exists("section.override"),
+        "renders container with overrided tagName"
+      );
     },
   });
 });
