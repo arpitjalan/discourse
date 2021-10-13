@@ -1325,4 +1325,31 @@ describe Report do
       end
     end
   end
+
+  describe 'top_users_by_likes_received' do
+    let(:report) { Report.find('top_users_by_likes_received') }
+
+    include_examples 'no data'
+
+    context 'with data' do
+      before do
+        user_1 = Fabricate(:user, username: "jonah")
+        user_2 = Fabricate(:user, username: "jake")
+        user_3 = Fabricate(:user, username: "john")
+
+        3.times { UserAction.create!(user_id: user_1.id, action_type: UserAction::WAS_LIKED) }
+        9.times { UserAction.create!(user_id: user_2.id, action_type: UserAction::WAS_LIKED) }
+        6.times { UserAction.create!(user_id: user_3.id, action_type: UserAction::WAS_LIKED) }
+      end
+
+      it "with category filtering" do
+        report = Report.find('top_users_by_likes_received')
+
+        expect(report.data.length).to eq(3)
+        expect(report.data[0][:username]).to eq("jake")
+        expect(report.data[1][:username]).to eq("john")
+        expect(report.data[2][:username]).to eq("jonah")
+      end
+    end
+  end
 end
