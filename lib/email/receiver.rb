@@ -83,8 +83,7 @@ module Email
 
           post
         rescue Exception => e
-          error = e.to_s
-          error = e.class.name if error.blank?
+          error = e.class.name
           @incoming_email.update_columns(error: error) if @incoming_email
           delete_staged_users
           raise
