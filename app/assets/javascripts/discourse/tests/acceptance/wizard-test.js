@@ -54,7 +54,7 @@ acceptance("Wizard", function (needs) {
 
     await click(".wizard-container__button.next");
     assert.ok(
-      exists(".dropdown-field.dropdown-snack"),
+      exists(".wizard-container__text-input#company_name"),
       "went to the next step"
     );
     assert.ok(
@@ -68,6 +68,10 @@ acceptance("Wizard", function (needs) {
     assert.ok(exists(".wizard-container__link.back"), "shows the back button");
     assert.ok(!exists(".wizard-container__step-title"));
     assert.ok(
+      !exists(".wizard-container__button.next"),
+      "does not show next button"
+    );
+    assert.ok(
       !exists(".wizard-container__button.finish"),
       "cannot finish on last step"
     );
@@ -75,6 +79,10 @@ acceptance("Wizard", function (needs) {
     await click(".wizard-container__link.back");
     assert.ok(exists(".wizard-container__step-title"));
     assert.ok(exists(".wizard-container__button.next"));
-    assert.ok(!exists(".wizard-prev"));
+    await click(".wizard-container__button.next");
+
+    await fillIn("input#company_name", "Foo Bar");
+    await click(".wizard-container__button.jump-in");
+    // redirects to /latest
   });
 });
