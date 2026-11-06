@@ -98,3 +98,12 @@ use `bin/lint --fix --recent` only when appropriate.
 - Follow project conventions, prevent knowledge silos
 - Recommend storage locations by info type
 - Inform when this file changes and reloads
+
+## Cursor Cloud specific instructions
+
+- The app listens at http://127.0.0.1:3000 via `bin/dev` (Pitchfork plus the JS bundler). Postgres 18 is started with `sudo pg_ctlcluster 18 main start` because systemd is not running. Redis is on `127.0.0.1:6379`.
+- A seeded admin exists: username `admin`, password `password`, email `admin@example.com`.
+- Native gems must be built with `CC=gcc`. `cc` on this image may be clang, and clang miscompiles the `-flto` flags Ruby's packaged build uses.
+- Discourse requires libvips 8.18 or newer. Ubuntu 24.04 packages 8.15, so 8.18.7 is installed under `/usr/local` and must stay ahead of the distro library on the linker path.
+- `postgresql-18-pgvector` is required. `db/structure.sql` loads `vector`, `hstore`, `pg_trgm`, and `unaccent`.
+- Test and lint entry points are `bin/rspec`, `bin/qunit`, and `bin/lint`. The test database is created with `RAILS_ENV=test bin/rails db:create db:migrate`.
